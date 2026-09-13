@@ -1,0 +1,93 @@
+name: Build & Release Mod
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_type:
+        description: "What type of release do you want to make?"
+        required: true
+        type: choice
+        options:
+          - release
+          - beta
+        default: release
+
+      version:
+        description: "Version number (example: 1.0.0 or 1.1.0-beta.1)"
+        required: true
+        type: string
+
+      release_notes:
+        description: "Release notes"
+        required: false
+        type: string
+        default: ""
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build Mod
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: "21"
+          distribution: "temurin"
+
+      - name: Setup Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Make Gradle executable
+        run: chmod +x ./gradlew
+
+      - name: Build mod
+        run: ./gradlew build
+
+      - name: Find built JAR
+        id: jar
+        shell: bash
+        run: |
+          JAR=$(find build/libs -maxdepth 1 -type f -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" | head -n 1)
+
+          if [ -z "$JAR" ]; then
+            echo "No mod JAR was found in build/libs"
+            exit 1
+          fi
+
+          echo "Found JAR: $JAR"
+          echo "jar=$JAR" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: minecraft-mod
+          path: ${{ steps.jar.outputs.jar }}
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+          RELEASE_TYPE: ${{ inputs.release_type }}
+          RELEASE_NOTES: ${{ inputs.release_notes }}
+          JAR: ${{ steps.jar.outputs.jar }}
+        shell: bash
+        run: |
+          if [ "$RELEASE_TYPE" = "beta" ]; then
+            gh release create "v$VERSION" \
+              "$JAR" \
+              --title "v$VERSION" \
+              --notes "$RELEASE_NOTES" \
+              --prerelease
+          else
+            gh release create "v$VERSION" \
+              "$JAR" \
+              --title "v$VERSION" \
+              --notes "$RELEASE_NOTES"
+          fi
