@@ -1,93 +1,65 @@
-name: Build & Release Mod
+name: Release
 
 on:
   workflow_dispatch:
     inputs:
+      version:
+        description: "Mod version (example: 1.2.0 or 1.2.0-beta.1)"
+        required: true
+        type: string
       release_type:
-        description: "What type of release do you want to make?"
+        description: "Release type"
         required: true
         type: choice
         options:
           - release
           - beta
-        default: release
-
-      version:
-        description: "Version number (example: 1.0.0 or 1.1.0-beta.1)"
-        required: true
-        type: string
-
-      release_notes:
-        description: "Release notes"
-        required: false
-        type: string
-        default: ""
 
 permissions:
   contents: write
 
 jobs:
-  build:
-    name: Build Mod
+  release:
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Set up Java 21
+      - name: Set version
+        run: |
+          VERSION="${{ inputs.version }}"
+          sed -i "s/^mod_version=.*/mod_version=$VERSION/" gradle.properties
+
+          echo "Version set to:"
+          grep "^mod_version=" gradle.properties
+
+      - name: Setup Java
         uses: actions/setup-java@v4
         with:
+          distribution: temurin
           java-version: "21"
-          distribution: "temurin"
-
-      - name: Setup Gradle
-        uses: gradle/actions/setup-gradle@v4
 
       - name: Make Gradle executable
         run: chmod +x ./gradlew
 
-      - name: Build mod
+      - name: Build
         run: ./gradlew build
 
-      - name: Find built JAR
-        id: jar
-        shell: bash
+      - name: Commit version
         run: |
-          JAR=$(find build/libs -maxdepth 1 -type f -name "*.jar" ! -name "*-sources.jar" ! -name "*-javadoc.jar" | head -n 1)
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
 
-          if [ -z "$JAR" ]; then
-            echo "No mod JAR was found in build/libs"
-            exit 1
-          fi
+          git add gradle.properties
+          git commit -m "Set version to ${{ inputs.version }}" || echo "No changes to commit"
+          git push
 
-          echo "Found JAR: $JAR"
-          echo "jar=$JAR" >> "$GITHUB_OUTPUT"
-
-      - name: Upload build artifact
-        uses: actions/upload-artifact@v4
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
         with:
-          name: minecraft-mod
-          path: ${{ steps.jar.outputs.jar }}
-
-      - name: Create GitHub Release
-        env:
-          GH_TOKEN: ${{ github.token }}
-          VERSION: ${{ inputs.version }}
-          RELEASE_TYPE: ${{ inputs.release_type }}
-          RELEASE_NOTES: ${{ inputs.release_notes }}
-          JAR: ${{ steps.jar.outputs.jar }}
-        shell: bash
-        run: |
-          if [ "$RELEASE_TYPE" = "beta" ]; then
-            gh release create "v$VERSION" \
-              "$JAR" \
-              --title "v$VERSION" \
-              --notes "$RELEASE_NOTES" \
-              --prerelease
-          else
-            gh release create "v$VERSION" \
-              "$JAR" \
-              --title "v$VERSION" \
-              --notes "$RELEASE_NOTES"
-          fi
+          tag_name: v${{ inputs.version }}
+          name: "${{ inputs.release_type == 'beta' && 'Beta ' || '' }}Release ${{ inputs.version }}"
+          prerelease: ${{ inputs.release_type == 'beta' }}
+          files: |
+            build/libs/*.jar
