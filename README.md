@@ -6,6 +6,7 @@ this is compatible with create Powerchip
 ## Dependencies
 ###required: 
 create: PowerGrid [curseforge page](https://www.curseforge.com/minecraft/mc-mods/power-grid) [modrth page](https://modrinth.com/mod/power-grid) [wiki page](https://createpowergrid.miraheze.org/wiki/Main_Page)
+
 and dependencies to this mod
 
 ###optional:
