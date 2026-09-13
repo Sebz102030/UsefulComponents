@@ -1,0 +1,20 @@
+{
+    "item.usefulcomponents.signal_oscillator":"signal oscillator",
+    "usefulcomponents.component.property.oscillator_frequency":"frequency [Hz]",
+    "component.usefulcomponents.signal_oscillator.0":"VCC",
+    "component.usefulcomponents.signal_oscillator.1":"GND",
+    "component.usefulcomponents.signal_oscillator.2":"Signal",
+
+    "item.usefulcomponents.voltage_regulator":"voltage regulator",
+    "component.usefulcomponents.voltage_regulator.0":"Vin",
+    "component.usefulcomponents.voltage_regulator.1":"Vout",
+    "component.usefulcomponents.voltage_regulator.2":"GND",
+    "component.usefulcomponents.voltage_regulator.3":"Vsteer",
+
+    "item.usefulcomponents.differential_comparator":"comparator",
+    "component.usefulcomponents.differential_comparator.0":"VCC",
+    "component.usefulcomponents.differential_comparator.1":"GND",
+    "component.usefulcomponents.differential_comparator.2":"Vin+",
+    "component.usefulcomponents.differential_comparator.3":"Vin-",
+    "component.usefulcomponents.differential_comparator.4":"OUT"
+}

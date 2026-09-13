@@ -1,0 +1,6 @@
+{
+  "parent": "minecraft:item/generated",
+  "textures": {
+    "layer0": "usefulcomponents:item/signal_oscillator"
+  }
+}
