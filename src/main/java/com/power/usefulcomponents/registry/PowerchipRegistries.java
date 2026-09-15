@@ -18,10 +18,6 @@ public final class PowerchipRegistries {
     public static final ResourceLocation SIGNAL_OSCILLATOR_ID = id("signal_oscillator");
     public static final ResourceLocation DIFFERENTIAL_COMPARATOR_ID = id("differential_comparator");
 
-    public static final VoltageRegulatorComponent VOLTAGE_REGULATOR = buildVoltageRegulator();
-    public static final SignalOscillatorComponent SIGNAL_OSCILLATOR = buildSignalOscillator();
-    public static final DifferentialComparatorComponent DIFFERENTIAL_COMPARATOR = buildDifferentialComparator();
-
     private PowerchipRegistries() {
     }
 
@@ -74,9 +70,9 @@ public final class PowerchipRegistries {
         // ModComponents.java: guard on the registry key, then register each
         // component with the simple (key, id, supplier) overload.
         if (event.getRegistryKey().equals(ComponentRegistry.REGISTRY_KEY)) {
-            event.register(ComponentRegistry.REGISTRY_KEY, VOLTAGE_REGULATOR_ID, () -> VOLTAGE_REGULATOR);
-            event.register(ComponentRegistry.REGISTRY_KEY, SIGNAL_OSCILLATOR_ID, () -> SIGNAL_OSCILLATOR);
-            event.register(ComponentRegistry.REGISTRY_KEY, DIFFERENTIAL_COMPARATOR_ID, () -> DIFFERENTIAL_COMPARATOR);
+            //event.register(ComponentRegistry.REGISTRY_KEY, VOLTAGE_REGULATOR_ID, () -> buildVoltageRegulator());
+            event.register(ComponentRegistry.REGISTRY_KEY, SIGNAL_OSCILLATOR_ID, () -> buildSignalOscillator());
+            event.register(ComponentRegistry.REGISTRY_KEY, DIFFERENTIAL_COMPARATOR_ID, () -> buildDifferentialComparator());
             UsefulComponents.LOGGER.info("Registered {} custom powergrid components", 3);
         }
     }

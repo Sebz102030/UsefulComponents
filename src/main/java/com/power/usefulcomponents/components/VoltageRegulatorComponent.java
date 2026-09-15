@@ -57,6 +57,9 @@ import java.util.List;
  * live node/wire references) must live on the {@link PlacedComponent}, via
  * its synced properties and {@code customData}, never as fields here.
  */
+
+//todo fix crash on place
+
 public class VoltageRegulatorComponent extends OrientableComponent
         implements IComponentGoggleInformation, IInteractableComponent {
 
@@ -83,12 +86,12 @@ public class VoltageRegulatorComponent extends OrientableComponent
     public VoltageRegulatorComponent(ComponentFootprint footprint) {
         super(footprint);
     }
-
+/*
     @Override
     protected void addProperties(ImmutableCollection.Builder<ComponentProperty<?>> properties) {
         super.addProperties(properties);
         properties.add(BURNT);
-    }
+    }*/
 
     @Override
     public void bake(@NotNull PlacedComponent placed, @NotNull ComponentCircuitBuilder builder,
