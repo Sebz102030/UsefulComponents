@@ -9,14 +9,13 @@
     "component.usefulcomponents.signal_oscillator.2.short":"Signal",
 
     "item.usefulcomponents.voltage_regulator":"voltage regulator",
+    "usefulcomponents.component.property.regulator_target_voltage":"target voltage [V]",
     "component.usefulcomponents.voltage_regulator.0":"Vin",
     "component.usefulcomponents.voltage_regulator.1":"Vout",
     "component.usefulcomponents.voltage_regulator.2":"GND",
-    "component.usefulcomponents.voltage_regulator.3":"Vsteer",
-"component.usefulcomponents.voltage_regulator.0.short":"Vin",
+    "component.usefulcomponents.voltage_regulator.0.short":"Vin",
     "component.usefulcomponents.voltage_regulator.1.short":"Vout",
     "component.usefulcomponents.voltage_regulator.2.short":"GND",
-    "component.usefulcomponents.voltage_regulator.3.short":"steer",
 
     "item.usefulcomponents.differential_comparator":"comparator",
     "component.usefulcomponents.differential_comparator.0":"VCC",
@@ -24,9 +23,31 @@
     "component.usefulcomponents.differential_comparator.2":"Vin+",
     "component.usefulcomponents.differential_comparator.3":"Vin-",
     "component.usefulcomponents.differential_comparator.4":"OUT",
-"component.usefulcomponents.differential_comparator.0.short":"VCC",
+    "component.usefulcomponents.differential_comparator.0.short":"VCC",
     "component.usefulcomponents.differential_comparator.1.short":"GND",
     "component.usefulcomponents.differential_comparator.2.short":"Vin+",
     "component.usefulcomponents.differential_comparator.3.short":"Vin-",
-    "component.usefulcomponents.differential_comparator.4.short":"OUT"
+    "component.usefulcomponents.differential_comparator.4.short":"OUT",
+
+    "item.usefulcomponents.ribbon_connector_side":"ribbon connector (side)",
+    "component.usefulcomponents.ribbon_connector_side.0":"A",
+    "component.usefulcomponents.ribbon_connector_side.1":"B",
+    "component.usefulcomponents.ribbon_connector_side.2":"C",
+    "component.usefulcomponents.ribbon_connector_side.3":"D",
+    "component.usefulcomponents.ribbon_connector_side.0.short":"A",
+    "component.usefulcomponents.ribbon_connector_side.1.short":"B",
+    "component.usefulcomponents.ribbon_connector_side.2.short":"C",
+    "component.usefulcomponents.ribbon_connector_side.3.short":"D",
+
+    "item.usefulcomponents.ribbon_connector_front":"ribbon connector (front)",
+    "component.usefulcomponents.ribbon_connector_front.0":"A",
+    "component.usefulcomponents.ribbon_connector_front.1":"B",
+    "component.usefulcomponents.ribbon_connector_front.2":"C",
+    "component.usefulcomponents.ribbon_connector_front.3":"D",
+    "component.usefulcomponents.ribbon_connector_front.0.short":"A",
+    "component.usefulcomponents.ribbon_connector_front.1.short":"B",
+    "component.usefulcomponents.ribbon_connector_front.2.short":"C",
+    "component.usefulcomponents.ribbon_connector_front.3.short":"D",
+
+    "item.usefulcomponents.ribbon_cable":"ribbon cable"
 }

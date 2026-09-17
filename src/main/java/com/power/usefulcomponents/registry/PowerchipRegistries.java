@@ -2,6 +2,7 @@ package com.power.usefulcomponents.registry;
 
 import com.power.usefulcomponents.UsefulComponents;
 import com.power.usefulcomponents.components.DifferentialComparatorComponent;
+import com.power.usefulcomponents.components.RibbonConnectorComponent;
 import com.power.usefulcomponents.components.SignalOscillatorComponent;
 import com.power.usefulcomponents.components.VoltageRegulatorComponent;
 import net.minecraft.resources.ResourceLocation;
@@ -17,19 +18,22 @@ public final class PowerchipRegistries {
     public static final ResourceLocation VOLTAGE_REGULATOR_ID = id("voltage_regulator");
     public static final ResourceLocation SIGNAL_OSCILLATOR_ID = id("signal_oscillator");
     public static final ResourceLocation DIFFERENTIAL_COMPARATOR_ID = id("differential_comparator");
+    public static final ResourceLocation RIBBON_CONNECTOR_SIDE_ID = id("ribbon_connector_side");
+    public static final ResourceLocation RIBBON_CONNECTOR_FRONT_ID = id("ribbon_connector_front");
 
     private PowerchipRegistries() {
     }
 
     private static VoltageRegulatorComponent buildVoltageRegulator() {
-        // 3 (w) x 3 (l) footprint. VIN/VOUT on the top row, GND/VSTEER on
-        // the bottom row.
+        // 3 (w) x 2 (l) footprint. VIN/VOUT on the top row, GND centered on
+        // the bottom row. No VSTEER pin - target voltage is now a
+        // player-tunable in-game value (right-click to cycle), not a wired
+        // input.
         String base = "component." + UsefulComponents.MODID + ".voltage_regulator";
-        var footprint = new ComponentFootprint.Builder(3, 3, base, null)
+        var footprint = new ComponentFootprint.Builder(3, 2, base, null)
                 .addPad(0, 0, VoltageRegulatorComponent.PIN_VIN, "VIN", "VIN")
                 .addPad(2, 0, VoltageRegulatorComponent.PIN_VOUT, "VOUT", "VOUT")
-                .addPad(0, 2, VoltageRegulatorComponent.PIN_GND, "GND", "GND")
-                .addPad(2, 2, VoltageRegulatorComponent.PIN_VSTEER, "VSTEER", "VST")
+                .addPad(1, 1, VoltageRegulatorComponent.PIN_GND, "GND", "GND")
                 .withItem()
                 .withOutline()
                 .build();
@@ -64,16 +68,47 @@ public final class PowerchipRegistries {
         return new DifferentialComparatorComponent(footprint);
     }
 
+    private static RibbonConnectorComponent buildRibbonConnectorSide() {
+        // 4 (w) x 2 (l) footprint, all 4 pins along the top row.
+        String base = "component." + UsefulComponents.MODID + ".ribbon_connector_side";
+        var footprint = new ComponentFootprint.Builder(4, 2, base, null)
+                .addPad(0, 0, RibbonConnectorComponent.PIN_A, "A", "A")
+                .addPad(1, 0, RibbonConnectorComponent.PIN_B, "B", "B")
+                .addPad(2, 0, RibbonConnectorComponent.PIN_C, "C", "C")
+                .addPad(3, 0, RibbonConnectorComponent.PIN_D, "D", "D")
+                .withItem()
+                .withOutline()
+                .build();
+        return new RibbonConnectorComponent(footprint, RibbonConnectorComponent.Orientation.SIDE);
+    }
+
+    private static RibbonConnectorComponent buildRibbonConnectorFront() {
+        // Same footprint/pins as the SIDE variant; only mounting direction
+        // (and eventually model/texture) differs.
+        String base = "component." + UsefulComponents.MODID + ".ribbon_connector_front";
+        var footprint = new ComponentFootprint.Builder(4, 2, base, null)
+                .addPad(0, 0, RibbonConnectorComponent.PIN_A, "A", "A")
+                .addPad(1, 0, RibbonConnectorComponent.PIN_B, "B", "B")
+                .addPad(2, 0, RibbonConnectorComponent.PIN_C, "C", "C")
+                .addPad(3, 0, RibbonConnectorComponent.PIN_D, "D", "D")
+                .withItem()
+                .withOutline()
+                .build();
+        return new RibbonConnectorComponent(footprint, RibbonConnectorComponent.Orientation.FRONT);
+    }
+
     @SubscribeEvent
     public static void onRegister(RegisterEvent event) {
         // Matches the exact pattern used by Create-Power-Chip's own
         // ModComponents.java: guard on the registry key, then register each
         // component with the simple (key, id, supplier) overload.
         if (event.getRegistryKey().equals(ComponentRegistry.REGISTRY_KEY)) {
-            //event.register(ComponentRegistry.REGISTRY_KEY, VOLTAGE_REGULATOR_ID, () -> buildVoltageRegulator());
+            event.register(ComponentRegistry.REGISTRY_KEY, VOLTAGE_REGULATOR_ID, () -> buildVoltageRegulator());
             event.register(ComponentRegistry.REGISTRY_KEY, SIGNAL_OSCILLATOR_ID, () -> buildSignalOscillator());
             event.register(ComponentRegistry.REGISTRY_KEY, DIFFERENTIAL_COMPARATOR_ID, () -> buildDifferentialComparator());
-            UsefulComponents.LOGGER.info("Registered {} custom powergrid components", 3);
+            event.register(ComponentRegistry.REGISTRY_KEY, RIBBON_CONNECTOR_SIDE_ID, () -> buildRibbonConnectorSide());
+            event.register(ComponentRegistry.REGISTRY_KEY, RIBBON_CONNECTOR_FRONT_ID, () -> buildRibbonConnectorFront());
+            UsefulComponents.LOGGER.info("Registered {} custom powergrid components", 5);
         }
     }
 

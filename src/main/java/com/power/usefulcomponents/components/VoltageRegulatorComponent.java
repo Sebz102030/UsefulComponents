@@ -4,15 +4,20 @@ import com.google.common.collect.ImmutableCollection;
 import com.power.usefulcomponents.UsefulComponents;
 import com.power.usefulcomponents.config.UsefulComponentsConfig;
 import net.minecraft.core.particles.ParticleTypes;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.NotNull;
+import org.patryk3211.powergrid.circuits.circuitboard.CircuitBoardBlockEntity;
 import org.patryk3211.powergrid.circuits.circuitboard.ComponentCircuitBuilder;
 import org.patryk3211.powergrid.circuits.components.IComponentGoggleInformation;
 import org.patryk3211.powergrid.circuits.components.IInteractableComponent;
 import org.patryk3211.powergrid.circuits.components.OrientableComponent;
 import org.patryk3211.powergrid.circuits.components.properties.BooleanProperty;
 import org.patryk3211.powergrid.circuits.components.properties.ComponentProperty;
+import org.patryk3211.powergrid.circuits.components.properties.IntProperty;
 import org.patryk3211.powergrid.circuits.schematic.ComponentFootprint;
 import org.patryk3211.powergrid.circuits.schematic.PlacedComponent;
 import org.patryk3211.powergrid.circuits.thermal.ThermalBuilder;
@@ -25,73 +30,82 @@ import java.util.List;
 /**
  * Adjustable Voltage Regulator.
  *
- * Footprint: 3 (w) x 3 (l) board-grid cells ("px" in the board's 16x16 grid,
- * matching {@code ComponentFootprint}'s coordinate space 1:1 - see
- * {@link com.power.usefulcomponents.registry.PowerchipRegistries}). The
- * requested 2px model height is a voxel-shape/render concern, not a
- * footprint dimension (Power Grid's board components are 2D footprints);
- * it's expressed below via {@link IInteractableComponent#extrudedFootprint}.
- *
- * Pins: 0=VIN, 1=VOUT, 2=GND, 3=VSTEER.
+ * Footprint: 3 (w) x 2 (l) board-grid cells; 2px model height.
+ * Pins: 0=VIN, 1=VOUT, 2=GND.
  *
  * Electrical model:
- *  - An internal {@link ProvidedVoltageSourceCoupling} targets
- *    VOUT = VSTEER + 2V, clamped so the VOUT-GND differential never exceeds
- *    20V and VOUT never exceeds VIN - 2V. The provider recomputes this each
- *    solver iteration from the previous iteration's node voltages, which is
- *    exactly what {@code ProvidedVoltageSourceCoupling} exists for.
- *  - That ideal internal node feeds the real VOUT terminal through a
- *    dynamically-sized loss resistor. Each tick we resize that resistor so
- *    its I^2*R dissipation equals PowerLoss = (VIN * Current) * (1 - eff);
- *    this both models efficiency loss physically and lets us register the
- *    resistor as a normal {@link ThermalBuilder} heat source, so burnout on
- *    over-temperature comes from the framework's own thermal simulation
- *    instead of a hand-rolled one.
- *  - Overcurrent and the linear voltage/current burnout curve are checked
- *    each tick directly against {@code regulatorMaxCurrent},
- *    {@code regulatorMaxVoltageAt1A} and {@code regulatorMaxVoltageAtMaxCurrent}.
+ *  - VOUT is held at a fixed target voltage (default 12V, tunable 2V-24V,
+ *    right-click to cycle) via a {@link ProvidedVoltageSourceCoupling} on
+ *    an internal "ideal" node.
+ *  - That ideal node feeds the real VOUT terminal through a loss resistor
+ *    ({@link ElectricWire}), re-sized every tick so its I^2*R dissipation
+ *    equals PowerLoss = VIN * Current * (1 - efficiency) - i.e. a fixed
+ *    config-driven fraction (default 20%) of drawn power becomes heat.
+ *  - Thermal integration copies {@code DiodeComponent}'s exact, verified
+ *    {@link ThermalBuilder} call chain (setMaxPower / setOverheatTemperature
+ *    / setThermalMass / withTemperatureCallback / addHeatSource), registering
+ *    the loss resistor as a real heat source. This means the component's
+ *    temperature is tracked by Power Grid's own thermal simulation, and is
+ *    readable by its Thermometer tool - not just an internal number we make
+ *    up ourselves.
+ *  - Burns out (turns black, stops conducting, spawns smoke) from exactly
+ *    two causes, checked in {@code tick()}: overvoltage (VIN exceeds
+ *    {@code regulatorMaxInputVoltage}, default 50V) or overheating
+ *    (temperature - reported back to us via withTemperatureCallback -
+ *    exceeds {@code regulatorMaxTemp}, default 100C). A fixed 2A current
+ *    cap (per spec, not config-driven) is enforced as a clamp inside the
+ *    loss-resistor math to keep it numerically sane; it does not use
+ *    {@code ThermalBuilder}'s own overheat-callback mechanism, which
+ *    {@code DiodeComponent} itself doesn't use either and so isn't
+ *    something this session has actually verified exists/behaves safely.
+ *
+ * None of the burnout thresholds (max temp, max input voltage, the 2A cap)
+ * are exposed as a {@link ComponentProperty} or shown to the player - only
+ * the tunable target voltage is. This is deliberate per spec.
  *
  * IMPORTANT: instances of this class are shared across every placed
- * regulator on every board (same convention as vanilla Power Grid
- * components like ResistorComponent) - all per-placement state (burnt flag,
- * live node/wire references) must live on the {@link PlacedComponent}, via
- * its synced properties and {@code customData}, never as fields here.
+ * regulator on every board - all per-placement state must live on the
+ * {@link PlacedComponent}, via its synced properties and
+ * {@code customData}, never as fields here.
  */
-
-//todo fix crash on place
-
 public class VoltageRegulatorComponent extends OrientableComponent
         implements IComponentGoggleInformation, IInteractableComponent {
 
     public static final int PIN_VIN = 0;
     public static final int PIN_VOUT = 1;
     public static final int PIN_GND = 2;
-    public static final int PIN_VSTEER = 3;
 
-    private static final double VOUT_STEER_OFFSET = 2.0D;
-    private static final double MAX_VOUT_DIFFERENTIAL = 20.0D;
-    private static final double VIN_HEADROOM = 2.0D;
+    public static final int DEFAULT_TARGET_VOLTAGE = 12;
+    public static final int MIN_TARGET_VOLTAGE = 2;
+    public static final int MAX_TARGET_VOLTAGE = 24;
+    public static final int VOLTAGE_STEP = 1;
+    public static final int VOLTAGE_STEP_SNEAK = 5;
+
+    /** Fixed current cap regardless of config, per simplified spec. */
+    private static final double MAX_CURRENT = 2.0D;
     private static final double MIN_CURRENT_FOR_LOSS_CALC = 0.01D;
     private static final float MIN_LOSS_RESISTANCE = 0.001f;
     private static final float MAX_LOSS_RESISTANCE = 1.0e6f;
-    /** Small series resistance of the ideal internal source, for solver stability. */
     private static final float SOURCE_RESISTANCE = 0.02f;
+    private static final double AMBIENT_TEMP = 20.0D;
 
-    // Using the 2-arg constructor (default false) rather than the 3-arg
-    // overload: some published Power Grid builds don't have the 3-arg
-    // overload yet, so this is the safer, universally-available call.
+    public static final IntProperty TARGET_VOLTAGE =
+            new IntProperty(UsefulComponents.MODID, "regulator_target_voltage",
+                    DEFAULT_TARGET_VOLTAGE, MIN_TARGET_VOLTAGE, MAX_TARGET_VOLTAGE);
+
     public static final BooleanProperty BURNT =
             new BooleanProperty(UsefulComponents.MODID, "regulator_burnt");
 
     public VoltageRegulatorComponent(ComponentFootprint footprint) {
         super(footprint);
     }
-/*
+
     @Override
     protected void addProperties(ImmutableCollection.Builder<ComponentProperty<?>> properties) {
         super.addProperties(properties);
+        properties.add(TARGET_VOLTAGE);
         properties.add(BURNT);
-    }*/
+    }
 
     @Override
     public void bake(@NotNull PlacedComponent placed, @NotNull ComponentCircuitBuilder builder,
@@ -99,33 +113,25 @@ public class VoltageRegulatorComponent extends OrientableComponent
         FloatingNode vin = builder.terminalNode(PIN_VIN);
         FloatingNode vout = builder.terminalNode(PIN_VOUT);
         FloatingNode gnd = builder.terminalNode(PIN_GND);
-        FloatingNode vsteer = builder.terminalNode(PIN_VSTEER);
 
         FloatingNode idealNode = builder.addInternalNode();
-
         var source = new ProvidedVoltageSourceCoupling(idealNode, gnd, SOURCE_RESISTANCE);
-        source.setVoltageProvider(() -> computeTargetDifferential(placed, vin, vsteer, gnd));
+        source.setVoltageProvider(() -> placed.get(BURNT) ? 0.0D : (double) placed.get(TARGET_VOLTAGE));
         builder.add(source);
         placed.add(source);
 
-        // Loss resistor between the ideal regulated node and the real VOUT
-        // terminal; its resistance is re-tuned every tick() so its I^2*R
-        // dissipation equals the configured-efficiency power loss.
         ElectricWire lossWire = builder.connect(MIN_LOSS_RESISTANCE, idealNode, vout);
         placed.add(lossWire);
 
-        placed.customData = new Runtime(vin, vout, gnd, source, lossWire);
+        double[] temperature = new double[] { AMBIENT_TEMP };
+        placed.customData = new Runtime(vin, vout, gnd, source, lossWire, temperature);
 
+        float maxTemp = UsefulComponentsConfig.REGULATOR_MAX_TEMP.get().floatValue();
         thermals.builder()
+                .setMaxPower(50f, maxTemp)
+                .setOverheatTemperature(maxTemp)
                 .setThermalMass(0.05f)
-                // Reference point only: at 50W steady dissipation the unit settles
-                // near its configured max temperature. Tune to taste.
-                // .floatValue() rather than (float) cast: casting a boxed
-                // Double straight to float is an illegal narrowing cast in
-                // Java; floatValue() does the narrowing itself.
-                .setMaxPower(50f, UsefulComponentsConfig.REGULATOR_MAX_TEMP.get().floatValue())
-                .setOverheatTemperature(UsefulComponentsConfig.REGULATOR_MAX_TEMP.get().floatValue())
-                .withOverheatCallback(() -> burn(placed))
+                .withTemperatureCallback(t -> temperature[0] = t)
                 .addHeatSource(lossWire);
     }
 
@@ -136,58 +142,34 @@ public class VoltageRegulatorComponent extends OrientableComponent
         if (!(placed.customData instanceof Runtime rt))
             return true;
         if (placed.get(BURNT)) {
-            // Ensure a burnt regulator well and truly stops conducting even
-            // if it was burnt via the manual checks below rather than the
-            // thermal overheat callback.
             rt.lossWire.setResistance(MAX_LOSS_RESISTANCE);
             return true;
         }
 
+        double maxInputVoltage = UsefulComponentsConfig.REGULATOR_MAX_INPUT_VOLTAGE.get();
+        double maxTemp = UsefulComponentsConfig.REGULATOR_MAX_TEMP.get();
         double efficiency = UsefulComponentsConfig.REGULATOR_EFFICIENCY.get();
-        double maxCurrent = UsefulComponentsConfig.REGULATOR_MAX_CURRENT.get();
-        double maxVoltageAt1A = UsefulComponentsConfig.REGULATOR_MAX_VOLTAGE_AT_1A.get();
-        double maxVoltageAtMaxCurrent = UsefulComponentsConfig.REGULATOR_MAX_VOLTAGE_AT_MAX_CURRENT.get();
 
+        double vinVoltage = rt.vin.getVoltage() - rt.gnd.getVoltage();
         double current = Math.abs(rt.source.getCurrent());
-        double vinVoltage = rt.vin.getVoltage();
-        double voutVoltage = Math.abs(rt.vout.getVoltage() - rt.gnd.getVoltage());
+        double clampedCurrent = Math.min(current, MAX_CURRENT);
 
-        double powerLoss = Math.max(0.0D, vinVoltage * current * (1.0D - efficiency));
-        double lossResistance = current > MIN_CURRENT_FOR_LOSS_CALC
-                ? powerLoss / (current * current)
+        // Resize the loss resistor so the framework's own I^2*R heat-source
+        // tracking sees exactly PowerLoss = VIN * Current * (1 - efficiency).
+        double powerLoss = Math.max(0.0D, vinVoltage * clampedCurrent * (1.0D - efficiency));
+        double lossResistance = clampedCurrent > MIN_CURRENT_FOR_LOSS_CALC
+                ? powerLoss / (clampedCurrent * clampedCurrent)
                 : MIN_LOSS_RESISTANCE;
         rt.lossWire.setResistance((float) Math.max(MIN_LOSS_RESISTANCE,
                 Math.min(lossResistance, MAX_LOSS_RESISTANCE)));
 
-        double burnoutCurve = burnoutVoltageThreshold(current, maxCurrent, maxVoltageAt1A, maxVoltageAtMaxCurrent);
-        if (current > maxCurrent || voutVoltage > burnoutCurve) {
+        // Two burnout causes only, per spec: overvoltage or overheating.
+        // (The 2A figure above is a numerical clamp for the loss-resistor
+        // math, not a third burnout trigger.)
+        if (vinVoltage > maxInputVoltage || rt.temperature[0] > maxTemp) {
             burn(placed);
         }
         return true;
-    }
-
-    /** (VOUT - VSTEER) = 2V target, clamped, returned as the positive-negative differential the coupling expects. */
-    private static double computeTargetDifferential(@NotNull PlacedComponent placed, FloatingNode vin,
-                                                      FloatingNode vsteer, FloatingNode gnd) {
-        if (placed.get(BURNT))
-            return 0.0D;
-
-        double target = vsteer.getVoltage() + VOUT_STEER_OFFSET;
-        target = Math.min(target, MAX_VOUT_DIFFERENTIAL);
-        target = Math.min(target, vin.getVoltage() - VIN_HEADROOM);
-        target = Math.max(target, 0.0D);
-        return target - gnd.getVoltage();
-    }
-
-    /** Linear interpolation between (1A, voltageAt1A) and (maxCurrent, voltageAtMaxCurrent). */
-    private static double burnoutVoltageThreshold(double current, double maxCurrent,
-                                                    double voltageAt1A, double voltageAtMaxCurrent) {
-        double lowCurrent = 1.0D;
-        if (maxCurrent <= lowCurrent)
-            return voltageAtMaxCurrent;
-        double clamped = Math.max(lowCurrent, Math.min(current, maxCurrent));
-        double t = (clamped - lowCurrent) / (maxCurrent - lowCurrent);
-        return voltageAt1A + t * (voltageAtMaxCurrent - voltageAt1A);
     }
 
     private static void burn(@NotNull PlacedComponent placed) {
@@ -207,19 +189,29 @@ public class VoltageRegulatorComponent extends OrientableComponent
 
     @Override
     public VoxelShape getShape(@NotNull PlacedComponent placed) {
-        // Requested 2px model height, expressed as a fraction of a full block.
         return IInteractableComponent.extrudedFootprint(placed, 2 / 16f);
     }
 
     @Override
-    public net.minecraft.world.InteractionResult use(
-            org.patryk3211.powergrid.circuits.circuitboard.CircuitBoardBlockEntity be,
-            PlacedComponent component, net.minecraft.world.entity.player.Player player) {
-        // No player-facing tuning for this component (VSTEER is wired, not
-        // dialed in-world), so interaction is a no-op. IInteractableComponent
-        // is still implemented so getShape() participates in click/goggle
-        // targeting like other 3D board components (see FuseHolderComponent).
-        return net.minecraft.world.InteractionResult.PASS;
+    public InteractionResult use(@NotNull CircuitBoardBlockEntity be, @NotNull PlacedComponent component,
+                                  @NotNull Player player) {
+        if (player.level().isClientSide)
+            return InteractionResult.SUCCESS;
+        if (component.get(BURNT)) {
+            player.displayClientMessage(Component.literal("This regulator is burnt out."), true);
+            return InteractionResult.SUCCESS;
+        }
+
+        int step = player.isShiftKeyDown() ? VOLTAGE_STEP_SNEAK : VOLTAGE_STEP;
+        int current = component.get(TARGET_VOLTAGE);
+        int next = current + step;
+        if (next > MAX_TARGET_VOLTAGE)
+            next = MIN_TARGET_VOLTAGE;
+
+        component.set(TARGET_VOLTAGE, next);
+        component.notifyClients(TARGET_VOLTAGE);
+        player.displayClientMessage(Component.literal("Regulator target voltage: " + next + " V"), true);
+        return InteractionResult.SUCCESS;
     }
 
     @Override
@@ -238,22 +230,21 @@ public class VoltageRegulatorComponent extends OrientableComponent
     }
 
     @Override
-    public boolean addToGoggleTooltip(@NotNull PlacedComponent placed,
-                                       @NotNull List<net.minecraft.network.chat.Component> tooltip,
+    public boolean addToGoggleTooltip(@NotNull PlacedComponent placed, @NotNull List<Component> tooltip,
                                        boolean isPlayerSneaking) {
         if (placed.get(BURNT)) {
-            tooltip.add(net.minecraft.network.chat.Component.literal("Burnt out"));
+            tooltip.add(Component.literal("Burnt out"));
             return true;
         }
-        if (!(placed.customData instanceof Runtime rt))
-            return false;
-        tooltip.add(net.minecraft.network.chat.Component.literal(
-                String.format("VOUT: %.1fV", rt.vout.getVoltage() - rt.gnd.getVoltage())));
+        // Deliberately not showing temperature or the burnout thresholds -
+        // those are internal/config-only, never player-visible, per spec.
+        tooltip.add(Component.literal("Target: " + placed.get(TARGET_VOLTAGE) + " V"));
         return true;
     }
 
     /** Per-placement live references, stashed via {@link PlacedComponent#customData}. */
     private record Runtime(FloatingNode vin, FloatingNode vout, FloatingNode gnd,
-                            ProvidedVoltageSourceCoupling source, ElectricWire lossWire) {
+                            ProvidedVoltageSourceCoupling source, ElectricWire lossWire,
+                            double[] temperature) {
     }
 }

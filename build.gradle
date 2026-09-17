@@ -23,6 +23,8 @@ repositories {
     maven {
         url = "https://www.cursemaven.com"
     }
+    maven { url = "https://maven.createmod.net" } // Create, Ponder, Flywheel
+    maven { url = "https://maven.ithundxr.dev/snapshots" } // Registrate
 }
 
 base {
@@ -80,8 +82,14 @@ configurations {
 }
 
 dependencies {
-    implementation "curse.maven:create-328085:7963363"
-    localRuntime "curse.maven:create-328085:7963363"
+    //implementation "curse.maven:create-328085:7963363"
+    //localRuntime "curse.maven:create-328085:7963363"
+
+    implementation("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
+    implementation("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
+    compileOnly("dev.engine-room.flywheel:flywheel-neoforge-api-${minecraft_version}:${flywheel_version}")
+    runtimeOnly("dev.engine-room.flywheel:flywheel-neoforge-${minecraft_version}:${flywheel_version}")
+    implementation("com.tterrag.registrate:Registrate:${registrate_version}")
 
     implementation "curse.maven:powergrid-1321420:8738576"
     localRuntime "curse.maven:powergrid-1321420:8738576"
