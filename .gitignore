@@ -16,3 +16,6 @@
 
 !gradle
 !gradle/**/*
+
+!*.code-workspace
+!.vscode/**/*
