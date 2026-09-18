@@ -1,0 +1,5 @@
+{
+  "end_texture": "usefulcomponents:block/component/ribbon_cable_end",
+  "middle_texture": "usefulcomponents:block/component/ribbon_cable_middle",
+  "thickness": 0.25
+}

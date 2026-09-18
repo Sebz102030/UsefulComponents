@@ -1,3 +1,5 @@
+# amke sure angles are multiple of 22.5 
+
 # UsefulComponents
 mod adding useful components to mod create: powerGrid 
 this mod is a addon that adds useful but missing components to create powergrid

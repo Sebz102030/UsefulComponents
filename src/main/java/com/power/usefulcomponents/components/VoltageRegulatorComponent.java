@@ -93,8 +93,8 @@ public class VoltageRegulatorComponent extends OrientableComponent
             new IntProperty(UsefulComponents.MODID, "regulator_target_voltage",
                     DEFAULT_TARGET_VOLTAGE, MIN_TARGET_VOLTAGE, MAX_TARGET_VOLTAGE);
 
-    public static final BooleanProperty BURNT =
-            new BooleanProperty(UsefulComponents.MODID, "regulator_burnt");
+    public static final BooleanProperty BURNT = (BooleanProperty)
+            new BooleanProperty(UsefulComponents.MODID, "regulator_burnt").hidden();
 
     public VoltageRegulatorComponent(ComponentFootprint footprint) {
         super(footprint);
