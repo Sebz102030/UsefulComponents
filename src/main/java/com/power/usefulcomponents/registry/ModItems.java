@@ -1,6 +1,7 @@
 package com.power.usefulcomponents.registry;
 
 import com.power.usefulcomponents.UsefulComponents;
+import com.power.usefulcomponents.components.RibbonCableItem;
 import net.minecraft.world.item.Item;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -9,9 +10,10 @@ import net.neoforged.neoforge.registries.DeferredRegister;
  * Plain items. Power Grid links an item to a component purely through data
  * files (data/usefulcomponents/powergrid/component_items/*.json) - these
  * items need no special class or behavior of their own. The one exception
- * is RIBBON_CABLE, which isn't a component-placing item at all: it's a
- * plain item whose "linking" behavior lives entirely in
- * RibbonConnectorComponent.use(), which checks the player's held item.
+ * is RIBBON_CABLE: it isn't a component-placing item at all, its "linking"
+ * behavior lives entirely in RibbonConnectorComponent.use() (which checks
+ * the player's held item), and it uses the custom RibbonCableItem class so
+ * it can glow while a connection is pending.
  */
 public final class ModItems {
 
@@ -33,9 +35,9 @@ public final class ModItems {
     public static final DeferredHolder<Item, Item> RIBBON_CONNECTOR_FRONT =
             ITEMS.registerSimpleItem("ribbon_connector_front", new Item.Properties());
 
-    /** Not a component-placing item - see class javadoc. */
-    public static final DeferredHolder<Item, Item> RIBBON_CABLE =
-            ITEMS.registerSimpleItem("ribbon_cable", new Item.Properties());
+    /** Not a component-placing item - see class javadoc. Glows while a connection is pending. */
+    public static final DeferredHolder<Item, RibbonCableItem> RIBBON_CABLE =
+            ITEMS.registerItem("ribbon_cable", RibbonCableItem::new, new Item.Properties());
 
     private ModItems() {
     }

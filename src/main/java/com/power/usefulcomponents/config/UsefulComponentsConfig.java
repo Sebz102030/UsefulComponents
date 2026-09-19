@@ -26,6 +26,9 @@ public final class UsefulComponentsConfig {
     // --- Signal Oscillator ---
     public static final ModConfigSpec.IntValue OSCILLATOR_MAX_FREQUENCY;
 
+    // --- Ribbon Cable ---
+    public static final ModConfigSpec.DoubleValue RIBBON_ITEMS_PER_BLOCK;
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -62,6 +65,19 @@ public final class UsefulComponentsConfig {
                 .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
                         + ".oscillatorMaxFrequency")
                 .defineInRange("oscillatorMaxFrequency", 120, 1, 240);
+
+        builder.pop();
+
+        builder.comment("Ribbon Cable settings")
+                .push("ribbonCable");
+
+        RIBBON_ITEMS_PER_BLOCK = builder
+                .comment("How many ribbon_cable items are consumed per block of distance between two",
+                        "connectors, rounded up (minimum 1 per connection either way). The same figure",
+                        "is used to calculate how many items are refunded when cutting a cable.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".ribbonItemsPerBlock")
+                .defineInRange("ribbonItemsPerBlock", 1.0D, 0.0D, 16.0D);
 
         builder.pop();
 

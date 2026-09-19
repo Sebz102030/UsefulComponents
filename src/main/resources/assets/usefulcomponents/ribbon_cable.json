@@ -1,0 +1,17 @@
+{
+  "thickness": 0.25,
+  "texture_size": 16,
+  "textures": {
+    "end": "usefulcomponents:block/component/ribbon_cable_end",
+    "middle": "usefulcomponents:block/component/ribbon_cable_middle"
+  },
+  "elements": [
+    {
+      "faces": {
+        "middle":  { "uv": [4, 0, 6, 4], "texture": "#middle" },
+        "end":     { "uv": [0, 0, 4, 4], "texture": "#end" },
+        "endflip": { "uv": [4, 0, 0, 4], "texture": "#end" }
+      }
+    }
+  ]
+}
