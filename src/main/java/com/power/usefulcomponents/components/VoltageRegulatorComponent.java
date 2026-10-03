@@ -84,10 +84,25 @@ public class VoltageRegulatorComponent extends OrientableComponent
     /** Fixed current cap regardless of config, per simplified spec. */
     private static final double MAX_CURRENT = 2.0D;
     private static final double MIN_CURRENT_FOR_LOSS_CALC = 0.01D;
+    /** Below this VIN-GND differential, there's no real input power - output is 0. */
+    private static final double MIN_VIN_FOR_OUTPUT = 0.5D;
+    /** Output is capped at (VIN - this), never above what's actually supplied. */
+    private static final double VIN_HEADROOM = 2.0D;
     private static final float MIN_LOSS_RESISTANCE = 0.001f;
     private static final float MAX_LOSS_RESISTANCE = 1.0e6f;
     private static final float SOURCE_RESISTANCE = 0.02f;
     private static final double AMBIENT_TEMP = 20.0D;
+    /**
+     * The regulator is a real load on its input: a resistor between VIN and
+     * GND that draws the regulator's own quiescent power plus everything it
+     * delivers (see tick()). Without it the input was only ever READ, so a
+     * source with just one terminal wired (no return path, no current) still
+     * looked like "power present" and switched the output on.
+     */
+    private static final double QUIESCENT_POWER = 0.1D;
+    private static final double INPUT_R_DEFAULT = 1000.0D;
+    private static final double MIN_INPUT_R = 1.0D;
+    private static final double MAX_INPUT_R = 1.0e6D;
 
     public static final IntProperty TARGET_VOLTAGE =
             new IntProperty(UsefulComponents.MODID, "regulator_target_voltage",
@@ -116,15 +131,42 @@ public class VoltageRegulatorComponent extends OrientableComponent
 
         FloatingNode idealNode = builder.addInternalNode();
         var source = new ProvidedVoltageSourceCoupling(idealNode, gnd, SOURCE_RESISTANCE);
-        source.setVoltageProvider(() -> placed.get(BURNT) ? 0.0D : (double) placed.get(TARGET_VOLTAGE));
+        // FIX: this previously always returned TARGET_VOLTAGE whenever not
+        // burnt, with no check on VIN at all - meaning the regulator
+        // produced its full target output even with zero (or no) input
+        // power. A real regulator can only pass through what it's actually
+        // given: if VIN isn't at least VOLTAGE_STEP_MIN_VIN_HEADROOM above
+        // GND, there's nothing to regulate, so output is 0; otherwise the
+        // output is capped at whatever's actually available (VIN minus a
+        // small headroom), never exceeding the target.
+        double[] outVoltage = new double[] { 0.0D };
+        source.setVoltageProvider(() -> {
+            double result;
+            double vinSupply = vin.getVoltage() - gnd.getVoltage();
+            if (placed.get(BURNT) || vinSupply < MIN_VIN_FOR_OUTPUT) {
+                // vinSupply is measured across the input load resistor below,
+                // so it is only non-zero when current can really flow from the
+                // supply into VIN and back out of GND (a complete input loop).
+                result = 0.0D;
+            } else {
+                double available = Math.max(0.0D, vinSupply - VIN_HEADROOM);
+                result = Math.min((double) placed.get(TARGET_VOLTAGE), available);
+            }
+            outVoltage[0] = result;
+            return result;
+        });
         builder.add(source);
         placed.add(source);
 
         ElectricWire lossWire = builder.connect(MIN_LOSS_RESISTANCE, idealNode, vout);
         placed.add(lossWire);
 
+        // Input load: draws the regulator's power from the supply (resized in tick()).
+        ElectricWire inputWire = builder.connect((float) INPUT_R_DEFAULT, vin, gnd);
+        placed.add(inputWire);
+
         double[] temperature = new double[] { AMBIENT_TEMP };
-        placed.customData = new Runtime(vin, vout, gnd, source, lossWire, temperature);
+        placed.customData = new Runtime(vin, vout, gnd, source, lossWire, inputWire, outVoltage, temperature);
 
         float maxTemp = UsefulComponentsConfig.REGULATOR_MAX_TEMP.get().floatValue();
         thermals.builder()
@@ -143,10 +185,10 @@ public class VoltageRegulatorComponent extends OrientableComponent
             return true;
         if (placed.get(BURNT)) {
             rt.lossWire.setResistance(MAX_LOSS_RESISTANCE);
+            rt.inputWire.setResistance(MAX_INPUT_R);
             return true;
         }
 
-        double maxInputVoltage = UsefulComponentsConfig.REGULATOR_MAX_INPUT_VOLTAGE.get();
         double maxTemp = UsefulComponentsConfig.REGULATOR_MAX_TEMP.get();
         double efficiency = UsefulComponentsConfig.REGULATOR_EFFICIENCY.get();
 
@@ -163,10 +205,25 @@ public class VoltageRegulatorComponent extends OrientableComponent
         rt.lossWire.setResistance((float) Math.max(MIN_LOSS_RESISTANCE,
                 Math.min(lossResistance, MAX_LOSS_RESISTANCE)));
 
-        // Two burnout causes only, per spec: overvoltage or overheating.
-        // (The 2A figure above is a numerical clamp for the loss-resistor
-        // math, not a third burnout trigger.)
-        if (vinVoltage > maxInputVoltage || rt.temperature[0] > maxTemp) {
+        // Size the input load so the supply is asked for exactly what the
+        // regulator needs: quiescent + delivered output power + the loss
+        // above. R = V^2 / P, smoothed so it can't oscillate tick to tick.
+        double inputPower = QUIESCENT_POWER + rt.outVoltage[0] * clampedCurrent + powerLoss;
+        double wantedInputR = vinVoltage >= MIN_VIN_FOR_OUTPUT
+                ? vinVoltage * vinVoltage / inputPower
+                : INPUT_R_DEFAULT;
+        wantedInputR = Math.max(MIN_INPUT_R, Math.min(wantedInputR, MAX_INPUT_R));
+        rt.inputWire.setResistance(0.5D * rt.inputWire.getResistance() + 0.5D * wantedInputR);
+
+        // Burnout is driven ONLY by ThermalBuilder's own tracked
+        // temperature now (fed to us via withTemperatureCallback into
+        // rt.temperature[0]) - no separate standalone overvoltage trigger.
+        // A high VIN still leads to burnout, just indirectly: more VIN
+        // means more power dissipated for the same current
+        // (PowerLoss = VIN * Current * (1 - efficiency)), which drives
+        // temperature up through the real thermal simulation until it
+        // crosses maxTemp on its own.
+        if (rt.temperature[0] > maxTemp) {
             burn(placed);
         }
         return true;
@@ -245,6 +302,6 @@ public class VoltageRegulatorComponent extends OrientableComponent
     /** Per-placement live references, stashed via {@link PlacedComponent#customData}. */
     private record Runtime(FloatingNode vin, FloatingNode vout, FloatingNode gnd,
                             ProvidedVoltageSourceCoupling source, ElectricWire lossWire,
-                            double[] temperature) {
+                            ElectricWire inputWire, double[] outVoltage, double[] temperature) {
     }
 }

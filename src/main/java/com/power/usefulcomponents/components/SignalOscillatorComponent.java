@@ -123,7 +123,7 @@ public class SignalOscillatorComponent extends OrientableComponent
     @Override
     public VoxelShape getShape(@NotNull PlacedComponent placed) {
         // Requested 4px model height, expressed as a fraction of a full block.
-        return IInteractableComponent.extrudedFootprint(placed, 4 / 16f);
+        return IInteractableComponent.extrudedFootprint(placed, 2 / 16f);
     }
 
     @Override

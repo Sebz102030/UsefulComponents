@@ -43,10 +43,10 @@ public final class PowerchipRegistries {
     private static SignalOscillatorComponent buildSignalOscillator() {
         // 2 (w) x 3 (l) footprint.
         String base = "component." + UsefulComponents.MODID + ".signal_oscillator";
-        var footprint = new ComponentFootprint.Builder(2, 3, base, null)
+        var footprint = new ComponentFootprint.Builder(3, 2, base, null)
                 .addPad(0, 0, SignalOscillatorComponent.PIN_VIN, "VIN", "VIN")
-                .addPad(1, 0, SignalOscillatorComponent.PIN_GND, "GND", "GND")
-                .addPad(0, 2, SignalOscillatorComponent.PIN_SIGNAL, "SIGNAL", "SIG")
+                .addPad(2, 0, SignalOscillatorComponent.PIN_GND, "GND", "GND")
+                .addPad(1, 1, SignalOscillatorComponent.PIN_SIGNAL, "SIGNAL", "SIG")
                 .withItem()
                 .withOutline()
                 .build();

@@ -49,5 +49,7 @@
     "component.usefulcomponents.ribbon_connector_front.2.short":"C",
     "component.usefulcomponents.ribbon_connector_front.3.short":"D",
 
-    "item.usefulcomponents.ribbon_cable":"ribbon cable"
+    "item.usefulcomponents.ribbon_cable":"ribbon cable",
+
+    "item.usefulcomponents.incomplete_oscillator":"incomplete oscillator"
 }

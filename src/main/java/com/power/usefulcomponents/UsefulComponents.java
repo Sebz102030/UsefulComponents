@@ -1,7 +1,6 @@
 package com.power.usefulcomponents;
 
 import com.power.usefulcomponents.config.UsefulComponentsConfig;
-import com.power.usefulcomponents.registry.ModDataComponents;
 import com.power.usefulcomponents.registry.ModItems;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.ModContainer;
@@ -22,7 +21,6 @@ public class UsefulComponents {
                 MODID + "-common.toml");
 
         ModItems.ITEMS.register(modEventBus);
-        ModDataComponents.DATA_COMPONENTS.register(modEventBus);
 
         LOGGER.info("Useful Components initializing");
     }

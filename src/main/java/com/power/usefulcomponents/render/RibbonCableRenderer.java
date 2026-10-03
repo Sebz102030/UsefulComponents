@@ -2,208 +2,219 @@ package com.power.usefulcomponents.render;
 
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.mojang.blaze3d.vertex.VertexConsumer;
-import com.power.usefulcomponents.components.RibbonConnectorComponent;
-import net.createmod.catnip.math.VecHelper;
-import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.client.renderer.RenderType;
-import net.minecraft.client.renderer.texture.TextureAtlasSprite;
-import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
-import net.minecraft.world.inventory.InventoryMenu;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.NotNull;
 import org.joml.Matrix4f;
-import org.patryk3211.powergrid.circuits.circuitboard.CircuitBoardBlock;
-import org.patryk3211.powergrid.circuits.circuitboard.CircuitBoardBlockEntity;
-import org.patryk3211.powergrid.circuits.components.OrientableComponent;
 import org.patryk3211.powergrid.circuits.schematic.PlacedComponent;
 
 /**
- * Turns a linked pair of ribbon connectors into an actual quad mesh: two
- * end caps plus a run of repeating middle tiles between them, all read
- * from {@link CableRenderConfig}.
- * <p>
- * This is the "rendering" half of what used to be a single
- * {@code RibbonConnectorComponent} file - the other half (linking,
- * cutting, item cost, networking) stays in {@link RibbonConnectorComponent}
- * itself, which only calls into this class for the actual draw call and
- * for cable-length math shared between rendering and the item-cost
- * calculation.
+ * Draws the flat ribbon cable between two linked
+ * ribbon connectors. Split out from the component itself so
+ * the component's own file stays focused on its actual behavior (properties,
+ * bake, linking) - this class only knows how to turn two world-space anchor
+ * points into quads.
+ *
+ * Texture binding uses {@code RenderType.entityCutoutNoCull(ResourceLocation)}
+ * with a DIRECT texture file reference and raw 0-1 UV coordinates - the same
+ * technique Power Grid's own {@code HangingWireRenderer} uses for its wires.
+ * This deliberately does NOT go through the block atlas
+ * ({@code Minecraft.getTextureAtlas(...)} + {@code TextureAtlasSprite}) - an
+ * earlier version of this switched to that atlas-based approach, which
+ * requires a texture to already be stitched into the atlas by some real
+ * block/item model referencing it. Since these cable textures aren't
+ * referenced by any model, the atlas lookup was silently returning the
+ * missing-texture sprite. Binding the file directly sidesteps needing any
+ * atlas stitching at all.
  */
 public final class RibbonCableRenderer {
+
     private static final float CABLE_WIDTH = 4 / 16f;
-    private static final float END_LENGTH = 2 / 16f;
-    private static final float MIDDLE_LENGTH = 4 / 16f;
+    // Segment lengths (end caps / middle tiles) come from the json's uv
+    // rects at 1:1 pixel density - see RibbonCableConfig.Face#length().
 
     private RibbonCableRenderer() {
     }
 
-    public record Anchor(Vec3 point, Vec3 facing, Vec3 up) {
-    }
-
     /**
-     * World-space position/direction a cable should leave a connector from,
-     * derived from the connector's footprint, orientation and the circuit
-     * board's own rotation.
+     * Draws one cable. {@code origin} is the world position that the pose
+     * stack's (0,0,0) stands for (the camera, when drawing from the level
+     * render stage), so every vertex is built in camera-relative doubles and
+     * keeps its precision far from the world origin.
      */
-    public static Anchor computeAnchor(@NotNull PlacedComponent placed) {
-        var footprint = placed.footprint();
-        float w = footprint.getWidth();
-        float h = footprint.getHeight();
+    public static void renderCable(@NotNull PoseStack ms, @NotNull MultiBufferSource bufferSource, @NotNull Vec3 origin,
+                                   @NotNull PlacedComponent placed, @NotNull PlacedComponent partner,
+                                   int light, int overlay) {
+        RibbonCableGeometry.Anchor a = RibbonCableGeometry.computeAnchor(placed);
+        RibbonCableGeometry.Anchor b = RibbonCableGeometry.computeAnchor(partner);
+        RibbonCableConfig cfg = RibbonCableConfig.get();
+        // thickness in the json is in PIXELS (1 px = 1/16 block), so
+        // 0.25 = a quarter of a pixel.
+        float halfThickness = cfg.thickness / 16f / 2f;
 
-        var state = placed.getWorld().getBlockState(placed.getPos());
-        int angleX = CircuitBoardBlock.getAngleX(state);
-        int angleY = CircuitBoardBlock.getAngleY(state);
-        BlockPos boardPos = placed.getPos();
-
-        RibbonConnectorComponent.Orientation placedOrientation = placed.component instanceof RibbonConnectorComponent rcc
-                ? rcc.orientation() : RibbonConnectorComponent.Orientation.SIDE;
-
-        float heightOffset = 3 / 16f;
-
-        if (placedOrientation == RibbonConnectorComponent.Orientation.FRONT) {
-            float centerX = placed.x + w / 2f;
-            float centerY = placed.y + h / 2f;
-
-            Vec3 base = transformLocal(centerX / 16f, heightOffset, centerY / 16f, angleX, angleY, boardPos);
-            Vec3 facingProbe = transformLocal(centerX / 16f, heightOffset, centerY / 16f + 0.01f, angleX, angleY, boardPos);
-            Vec3 upProbe = transformLocal(centerX / 16f, heightOffset + 0.01f, centerY / 16f, angleX, angleY, boardPos);
-
-            return new Anchor(base, facingProbe.subtract(base).normalize(), upProbe.subtract(base).normalize());
-        }
-
-        float dx, dy;
-        switch (placed.get(OrientableComponent.ORIENTATION)) {
-            case RIGHT -> { dx = 1; dy = 0; }
-            case DOWN -> { dx = 0; dy = 1; }
-            case LEFT -> { dx = -1; dy = 0; }
-            case UP -> { dx = 0; dy = -1; }
-            default -> throw new IllegalStateException("Unknown orientation: " + placed.get(OrientableComponent.ORIENTATION));
-        }
-
-        float edgeX = placed.x + w / 2f + dx * (w / 2f);
-        float edgeY = placed.y + h / 2f + dy * (h / 2f);
-
-        Vec3 base = transformLocal(edgeX / 16f, heightOffset, edgeY / 16f, angleX, angleY, boardPos);
-        Vec3 facingProbe = transformLocal(edgeX / 16f + dy * 0.01f, heightOffset, edgeY / 16f + dx * 0.01f, angleX, angleY, boardPos);
-        Vec3 upProbe = transformLocal(edgeX / 16f, heightOffset + 0.01f, edgeY / 16f, angleX, angleY, boardPos);
-
-        return new Anchor(base, facingProbe.subtract(base).normalize(), upProbe.subtract(base).normalize());
-    }
-
-    private static Vec3 transformLocal(float x, float y, float z, int angleX, int angleY, BlockPos boardPos) {
-        Vec3 pos = new Vec3(x, y, z);
-        pos = VecHelper.rotateCentered(pos, angleX, Direction.Axis.X);
-        pos = VecHelper.rotateCentered(pos, angleY, Direction.Axis.Y);
-        return pos.add(boardPos.getX(), boardPos.getY(), boardPos.getZ());
-    }
-
-    /**
-     * Total cable length (end segments + middle run) between two linked
-     * connectors, in blocks. Shared by the renderer (to know how many
-     * middle tiles to draw) and by {@code RibbonConnectorComponent} (to
-     * price connecting/cutting the cable).
-     */
-    public static double cableLength(@NotNull PlacedComponent placed, @NotNull PlacedComponent partner) {
-        Anchor a = computeAnchor(placed);
-        Anchor b = computeAnchor(partner);
-        Vec3 p0 = a.point();
-        Vec3 p3 = b.point();
-        Vec3 p1 = p0.add(a.facing().scale(END_LENGTH));
-        Vec3 p2 = p3.add(b.facing().scale(END_LENGTH));
-        return p0.distanceTo(p1) + p1.distanceTo(p2) + p2.distanceTo(p3);
-    }
-
-    /** Draws the full cable mesh between {@code placed} and {@code partner}. Call once per linked pair. */
-    public static void render(@NotNull CircuitBoardBlockEntity be, @NotNull PlacedComponent placed,
-                               @NotNull PlacedComponent partner, @NotNull PoseStack ms,
-                               @NotNull MultiBufferSource bufferSource, int light, int overlay) {
-        Anchor a = computeAnchor(placed);
-        Anchor b = computeAnchor(partner);
-        CableRenderConfig cfg = CableRenderConfig.get();
-        float halfThickness = cfg.thickness() / 16f / 2f;
-
-        ms.popPose();
-        ms.pushPose();
         Matrix4f matrix = ms.last().pose();
 
-        Vec3 origin = Vec3.atLowerCornerOf(be.getBlockPos());
         Vec3 p0 = a.point().subtract(origin);
         Vec3 p3 = b.point().subtract(origin);
-        Vec3 p1 = p0.add(a.facing().scale(END_LENGTH));
-        Vec3 p2 = p3.add(b.facing().scale(END_LENGTH));
+
+        RibbonCableConfig.Face endFace = cfg.end;
+        RibbonCableConfig.Face endFlipFace = cfg.endFlip;
+        RibbonCableConfig.Face middleFace = cfg.middle;
+        final double middleLength = middleFace.length();
+
+        // The end caps are exactly as long as their texture (4x2 px texture
+        // -> 2 px long cap), so the pixels stay square.
+        float endRunA = endFace.length();
+        float endRunB = endFlipFace.length();
+
+        Vec3 p1 = p0.add(a.facing().scale(endRunA));
+        Vec3 p2 = p3.add(b.facing().scale(endRunB));
 
         Vec3 midDirVec = p2.subtract(p1);
         Vec3 midDir = midDirVec.lengthSqr() < 1.0e-8 ? a.facing() : midDirVec.normalize();
         double midLength = midDirVec.length();
 
-        Vec3 rightA = perpendicular(a.facing(), a.up());
-        Vec3 rightB = perpendicular(b.facing(), b.up());
+        // --- ribbon frames ---
+        // Each connector end owns its frame: `right` (half-width, along the
+        // connector's own width axis) and `up` (thickness axis, i.e. the
+        // ribbon's wide-face normal). Both come straight from the
+        // connector's orientation on the board (see computeAnchor), so the
+        // ribbon always lines up with the connector body no matter how the
+        // component or the board is rotated.
+        Vec3 rightA = a.width().scale(CABLE_WIDTH / 2f);
+        Vec3 upA = a.thickness();
+        Vec3 rightB = b.width().scale(CABLE_WIDTH / 2f);
+        Vec3 upB = b.thickness();
 
-        Vec3 rightMid = perpendicular(midDir, a.up());
-        if (rightMid.lengthSqr() < 1.0e-4) {
-            rightMid = rightA;
-        }
+        // The middle run's frame is the end frame carried around the bend
+        // (minimal rotation facing -> midDir), so the wide face keeps its
+        // orientation through the corner instead of snapping to a fixed
+        // world direction. Seen from the B side the cable arrives travelling
+        // along -midDir relative to B's outward facing.
+        Vec3 rightM0 = transport(rightA, a.facing(), midDir);
+        Vec3 upM0 = transport(upA, a.facing(), midDir);
+        Vec3 rightM1 = transport(rightB, b.facing(), midDir.scale(-1));
 
-        var atlas = Minecraft.getInstance().getTextureAtlas(InventoryMenu.BLOCK_ATLAS);
-        TextureAtlasSprite endSprite = atlas.apply(cfg.end().texture());
-        TextureAtlasSprite endFlipSprite = atlas.apply(cfg.endFlip().texture());
-        TextureAtlasSprite middleSprite = atlas.apply(cfg.middle().texture());
+        // Remaining twist between the two ends, spread evenly along the
+        // run. A ribbon is symmetric under a 180 degree turn, so the twist
+        // is folded into [-90, 90] degrees.
+        double twist = signedAngle(rightM0, rightM1, midDir);
+        if (twist > Math.PI / 2)
+            twist -= Math.PI;
+        else if (twist < -Math.PI / 2)
+            twist += Math.PI;
+        double twistDeg = Math.toDegrees(twist);
 
-        VertexConsumer buffer = bufferSource.getBuffer(RenderType.entityCutout(InventoryMenu.BLOCK_ATLAS));
+        VertexConsumer endBuffer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(textureFile(endFace.texture())));
+        // "end" for the first connector: v=0 side touches the connector,
+        // v=1 sits at the joint with the middle run.
+        drawRibbonSegment(matrix, endBuffer, endFace, p0, rightA, upA, p1, rightA, upA, 0f, 1f, halfThickness, light, overlay);
 
-        // Draw cap ends - "end" at the first (placed) connector, "endflip" at the second (partner) one.
-        drawSegment(matrix, buffer, endSprite, p0, rightA, a.up(), p1, rightA, a.up(),
-                cfg.end(), halfThickness, light, overlay);
-        drawSegment(matrix, buffer, endFlipSprite, p3, rightB, b.up(), p2, rightB, b.up(),
-                cfg.endFlip(), halfThickness, light, overlay);
+        VertexConsumer endFlipBuffer = endFlipFace.texture().equals(endFace.texture())
+                ? endBuffer
+                : bufferSource.getBuffer(RenderType.entityCutoutNoCull(textureFile(endFlipFace.texture())));
+        // "endflip" for the second connector - same convention, with the
+        // uv sub-rect from the json (mirrored/rotated) so the two ends
+        // don't look identical when they face opposite ways.
+        drawRibbonSegment(matrix, endFlipBuffer, endFlipFace, p2, rightB, upB, p3, rightB, upB, 0f, 1f, halfThickness, light, overlay);
 
-        // Draw middle tiles, each one a full repeat of the "middle" face's UV rectangle.
-        int fullTiles = (int) Math.floor(midLength / MIDDLE_LENGTH);
-        double remainder = midLength - fullTiles * MIDDLE_LENGTH;
+        VertexConsumer middleBuffer = bufferSource.getBuffer(RenderType.entityCutoutNoCull(textureFile(middleFace.texture())));
+        int fullTiles = (int) Math.floor(midLength / middleLength);
+        double remainder = midLength - fullTiles * middleLength;
         Vec3 cursor = p1;
+        double travelled = 0;
         for (int i = 0; i < fullTiles; i++) {
-            Vec3 next = cursor.add(midDir.scale(MIDDLE_LENGTH));
-            drawSegment(matrix, buffer, middleSprite, cursor, rightMid, a.up(), next, rightMid, a.up(),
-                    cfg.middle(), halfThickness, light, overlay);
+            Vec3 next = cursor.add(midDir.scale(middleLength));
+            double t0 = travelled / midLength;
+            double t1 = (travelled + middleLength) / midLength;
+            drawRibbonSegment(matrix, middleBuffer, middleFace,
+                    cursor, rotateAroundAxis(rightM0, midDir, twistDeg * t0), rotateAroundAxis(upM0, midDir, twistDeg * t0),
+                    next, rotateAroundAxis(rightM0, midDir, twistDeg * t1), rotateAroundAxis(upM0, midDir, twistDeg * t1),
+                    0f, 1f, halfThickness, light, overlay);
             cursor = next;
+            travelled += middleLength;
         }
         if (remainder > 1.0e-4) {
             Vec3 next = cursor.add(midDir.scale(remainder));
-            float frac = (float) (remainder / MIDDLE_LENGTH);
-            drawSegment(matrix, buffer, middleSprite, cursor, rightMid, a.up(), next, rightMid, a.up(),
-                    partialFace(cfg.middle(), frac), halfThickness, light, overlay);
+            double t0 = travelled / midLength;
+            // Short cable: the trailing partial tile samples only the
+            // fraction of the middle face's own uv rect it actually needs.
+            float vMax = (float) (remainder / middleLength);
+            drawRibbonSegment(matrix, middleBuffer, middleFace,
+                    cursor, rotateAroundAxis(rightM0, midDir, twistDeg * t0), rotateAroundAxis(upM0, midDir, twistDeg * t0),
+                    next, rotateAroundAxis(rightM0, midDir, twistDeg), rotateAroundAxis(upM0, midDir, twistDeg),
+                    0f, vMax, halfThickness, light, overlay);
         }
 
-        // Draw joint patches with z-fighting mitigation
-        drawJointPatch(matrix, buffer, middleSprite, p1, rightA, a.up(), rightMid, a.up(), halfThickness, light, overlay);
-        drawJointPatch(matrix, buffer, middleSprite, p2, rightMid, a.up(), rightB, b.up(), halfThickness, light, overlay);
+        drawJointPatch(matrix, middleBuffer, middleFace, p1, rightA, upA, rightM0, upM0, halfThickness, light, overlay);
+        drawJointPatch(matrix, middleBuffer, middleFace, p2,
+                rotateAroundAxis(rightM0, midDir, twistDeg), rotateAroundAxis(upM0, midDir, twistDeg),
+                rightB, upB, halfThickness, light, overlay);
     }
 
-    /** Same face but with its V range cut short to {@code frac} of the way through - used for a partial middle tile. */
-    private static CableRenderConfig.Face partialFace(CableRenderConfig.Face face, float frac) {
-        float v = face.v0() + (face.v1() - face.v0()) * frac;
-        return new CableRenderConfig.Face(face.texture(), face.u0(), face.v0(), face.u1(), v);
+    /**
+     * {@link RenderType#entityCutoutNoCull} binds a texture FILE directly, so
+     * the json's model-style id ({@code ns:block/component/x}) has to become
+     * {@code ns:textures/block/component/x.png}. Ids already in file form are
+     * left alone.
+     */
+    private static ResourceLocation textureFile(ResourceLocation id) {
+        String path = id.getPath();
+        if (!path.startsWith("textures/"))
+            path = "textures/" + path;
+        if (!path.endsWith(".png"))
+            path = path + ".png";
+        return ResourceLocation.fromNamespaceAndPath(id.getNamespace(), path);
     }
 
-    private static Vec3 perpendicular(Vec3 direction, Vec3 up) {
-        Vec3 cross = direction.cross(up);
-        if (cross.lengthSqr() < 1.0e-6) {
-            return new Vec3(0, 0, 0);
+    /** Rotates {@code v} the same way the minimal rotation taking unit vector {@code from} to unit vector {@code to} would. */
+    private static Vec3 transport(Vec3 v, Vec3 from, Vec3 to) {
+        Vec3 axis = from.cross(to);
+        double s = axis.length();
+        double c = from.dot(to);
+        if (s < 1.0e-6) {
+            if (c > 0)
+                return v;
+            // Exactly reversed: any axis perpendicular to `from` works.
+            Vec3 perp = Math.abs(from.y) < 0.9 ? from.cross(new Vec3(0, 1, 0)) : from.cross(new Vec3(1, 0, 0));
+            return rotateAroundAxis(v, perp.normalize(), 180f);
         }
-        return cross.normalize().scale(CABLE_WIDTH / 2f);
+        return rotateAroundAxis(v, axis.scale(1 / s), (float) Math.toDegrees(Math.atan2(s, c)));
     }
 
-    private static void drawSegment(Matrix4f matrix, VertexConsumer vc, TextureAtlasSprite sprite,
-                                     Vec3 start, Vec3 rightStart, Vec3 upStart,
-                                     Vec3 end, Vec3 rightEnd, Vec3 upEnd,
-                                     CableRenderConfig.Face face, float halfThickness,
-                                     int light, int overlay) {
+    /** Signed angle (radians) from {@code a} to {@code b} around unit {@code axis}. */
+    private static double signedAngle(Vec3 a, Vec3 b, Vec3 axis) {
+        double len = a.length() * b.length();
+        if (len < 1.0e-9)
+            return 0;
+        return Math.atan2(axis.dot(a.cross(b)) / len, a.dot(b) / len);
+    }
+
+    /**
+     * Rotates {@code v} by {@code degrees} around {@code axis} (Rodrigues'
+     * rotation formula - {@code axis} must be a unit vector). Used to apply
+     * the ribbon twist / bend transport.
+     */
+    private static Vec3 rotateAroundAxis(Vec3 v, Vec3 axis, double degrees) {
+        if (degrees == 0.0)
+            return v;
+        double rad = Math.toRadians(degrees);
+        double cos = Math.cos(rad), sin = Math.sin(rad);
+        Vec3 term1 = v.scale(cos);
+        Vec3 term2 = axis.cross(v).scale(sin);
+        Vec3 term3 = axis.scale(axis.dot(v) * (1 - cos));
+        return term1.add(term2).add(term3);
+    }
+
+    private static void drawRibbonSegment(Matrix4f matrix, VertexConsumer vc, RibbonCableConfig.Face face,
+                                           Vec3 start, Vec3 rightStart, Vec3 upStart,
+                                           Vec3 end, Vec3 rightEnd, Vec3 upEnd,
+                                           float vStart, float vEnd, float halfThickness,
+                                           int light, int overlay) {
         if (start.subtract(end).lengthSqr() < 1.0e-5)
             return;
-
-        float u0 = face.u0(), u1 = face.u1(), vStart = face.v0(), vEnd = face.v1();
 
         Vec3 topStartL = start.subtract(rightStart).add(upStart.scale(halfThickness));
         Vec3 topStartR = start.add(rightStart).add(upStart.scale(halfThickness));
@@ -220,47 +231,77 @@ public final class RibbonCableRenderer {
         Vec3 leftNormal = rightStart.add(rightEnd).normalize().scale(-1);
         Vec3 rightNormal = rightStart.add(rightEnd).normalize();
 
-        quad(matrix, vc, sprite, topStartL, topStartR, topEndR, topEndL, normalTop,
-                u0, vStart, u1, vStart, u1, vEnd, u0, vEnd, light, overlay);
-        quad(matrix, vc, sprite, botStartR, botStartL, botEndL, botEndR, normalBottom,
-                u1, vStart, u0, vStart, u0, vEnd, u1, vEnd, light, overlay);
-        quad(matrix, vc, sprite, botStartL, topStartL, topEndL, botEndL, leftNormal,
-                u0, vStart, u0, vStart, u0, vEnd, u0, vEnd, light, overlay);
-        quad(matrix, vc, sprite, topStartR, botStartR, botEndR, topEndR, rightNormal,
-                u1, vStart, u1, vStart, u1, vEnd, u1, vEnd, light, overlay);
+        float u0 = face.u(0f), u1 = face.u(1f);
+        float v0 = face.v(vStart), v1 = face.v(vEnd);
+
+        quad(matrix, vc, topStartL, topStartR, topEndR, topEndL, normalTop,
+                u0, v0, u1, v0, u1, v1, u0, v1, light, overlay);
+        quad(matrix, vc, botStartR, botStartL, botEndL, botEndR, normalBottom,
+                u1, v0, u0, v0, u0, v1, u1, v1, light, overlay);
+
+        // "thickness 0" is flat: skip the edge walls entirely (top and
+        // bottom already coincide, forming a double-sided flat card) so
+        // there's no degenerate zero-area geometry drawn for them.
+        if (halfThickness > 1.0e-5) {
+            quad(matrix, vc, botStartL, topStartL, topEndL, botEndL, leftNormal,
+                    u0, v0, u0, v0, u0, v1, u0, v1, light, overlay);
+            quad(matrix, vc, topStartR, botStartR, botEndR, topEndR, rightNormal,
+                    u1, v0, u1, v0, u1, v1, u1, v1, light, overlay);
+        }
     }
 
-    private static void drawJointPatch(Matrix4f matrix, VertexConsumer vc, TextureAtlasSprite sprite, Vec3 point,
+    /**
+     * Closes the wedge that opens on the outside of a bend. The ribbon's
+     * cross-section (a thin rectangle) at {@code point} is known in two
+     * frames - the incoming segment's and the outgoing segment's - and this
+     * joins the matching corners of the two rectangles with four quads
+     * (top, bottom, left, right), so no gap shows the inside of the cable.
+     */
+    private static void drawJointPatch(Matrix4f matrix, VertexConsumer vc, RibbonCableConfig.Face face, Vec3 point,
                                         Vec3 right1, Vec3 up1, Vec3 right2, Vec3 up2,
                                         float halfThickness, int light, int overlay) {
-        Vec3 up = up1.add(up2).normalize();
-        Vec3 topOffset = up.scale(halfThickness + 0.001f);
-        Vec3 botOffset = up.scale(-(halfThickness + 0.001f));
+        // Keep both frames on the same side (a ribbon is symmetric under a
+        // 180 degree turn), otherwise the loft would twist into a bow-tie.
+        if (right1.dot(right2) < 0)
+            right2 = right2.scale(-1);
+        if (up1.dot(up2) < 0)
+            up2 = up2.scale(-1);
 
-        Vec3 topA1 = point.subtract(right1).add(topOffset);
-        Vec3 topA2 = point.add(right1).add(topOffset);
-        Vec3 topB1 = point.subtract(right2).add(topOffset);
-        Vec3 topB2 = point.add(right2).add(topOffset);
-        quad(matrix, vc, sprite, topA1, topA2, topB2, topB1, up,
-                0f, 0.5f, 1f, 0.5f, 1f, 0.5f, 0f, 0.5f, light, overlay);
+        Vec3 tl1 = point.subtract(right1).add(up1.scale(halfThickness));
+        Vec3 tr1 = point.add(right1).add(up1.scale(halfThickness));
+        Vec3 bl1 = point.subtract(right1).subtract(up1.scale(halfThickness));
+        Vec3 br1 = point.add(right1).subtract(up1.scale(halfThickness));
 
-        Vec3 botA1 = point.subtract(right1).add(botOffset);
-        Vec3 botA2 = point.add(right1).add(botOffset);
-        Vec3 botB1 = point.subtract(right2).add(botOffset);
-        Vec3 botB2 = point.add(right2).add(botOffset);
-        quad(matrix, vc, sprite, botA2, botA1, botB1, botB2, up.scale(-1),
-                1f, 0.5f, 0f, 0.5f, 0f, 0.5f, 1f, 0.5f, light, overlay);
+        Vec3 tl2 = point.subtract(right2).add(up2.scale(halfThickness));
+        Vec3 tr2 = point.add(right2).add(up2.scale(halfThickness));
+        Vec3 bl2 = point.subtract(right2).subtract(up2.scale(halfThickness));
+        Vec3 br2 = point.add(right2).subtract(up2.scale(halfThickness));
+
+        float u0 = face.u(0f), u1 = face.u(1f);
+        float v = face.v(0.5f);
+
+        Vec3 nTop = up1.add(up2).normalize();
+        Vec3 nRight = right1.add(right2).normalize();
+
+        // top / bottom faces
+        quad(matrix, vc, tl1, tr1, tr2, tl2, nTop, u0, v, u1, v, u1, v, u0, v, light, overlay);
+        quad(matrix, vc, br1, bl1, bl2, br2, nTop.scale(-1), u1, v, u0, v, u0, v, u1, v, light, overlay);
+        // side walls (only when the ribbon has real thickness)
+        if (halfThickness > 1.0e-5) {
+            quad(matrix, vc, bl1, tl1, tl2, bl2, nRight.scale(-1), u0, v, u0, v, u0, v, u0, v, light, overlay);
+            quad(matrix, vc, tr1, br1, br2, tr2, nRight, u1, v, u1, v, u1, v, u1, v, light, overlay);
+        }
     }
 
-    private static void quad(Matrix4f matrix, VertexConsumer vc, TextureAtlasSprite sprite,
+    private static void quad(Matrix4f matrix, VertexConsumer vc,
                               Vec3 p1, Vec3 p2, Vec3 p3, Vec3 p4, Vec3 normal,
                               float u1, float v1, float u2, float v2, float u3, float v3, float u4, float v4,
                               int light, int overlay) {
         float nx = (float) normal.x, ny = (float) normal.y, nz = (float) normal.z;
-        vertex(matrix, vc, p1, sprite.getU(u1), sprite.getV(v1), nx, ny, nz, light, overlay);
-        vertex(matrix, vc, p2, sprite.getU(u2), sprite.getV(v2), nx, ny, nz, light, overlay);
-        vertex(matrix, vc, p3, sprite.getU(u3), sprite.getV(v3), nx, ny, nz, light, overlay);
-        vertex(matrix, vc, p4, sprite.getU(u4), sprite.getV(v4), nx, ny, nz, light, overlay);
+        vertex(matrix, vc, p1, u1, v1, nx, ny, nz, light, overlay);
+        vertex(matrix, vc, p2, u2, v2, nx, ny, nz, light, overlay);
+        vertex(matrix, vc, p3, u3, v3, nx, ny, nz, light, overlay);
+        vertex(matrix, vc, p4, u4, v4, nx, ny, nz, light, overlay);
     }
 
     private static void vertex(Matrix4f matrix, VertexConsumer vc, Vec3 p, float u, float v,

@@ -1,25 +1,23 @@
 package com.power.usefulcomponents.components;
 
 import com.google.common.collect.ImmutableCollection;
-import com.mojang.blaze3d.vertex.PoseStack;
 import com.power.usefulcomponents.UsefulComponents;
-import com.power.usefulcomponents.config.UsefulComponentsConfig;
-import com.power.usefulcomponents.registry.ModDataComponents;
 import com.power.usefulcomponents.registry.ModItems;
-import com.power.usefulcomponents.render.RibbonCableRenderer;
-import net.minecraft.client.renderer.MultiBufferSource;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.phys.shapes.VoxelShape;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.patryk3211.powergrid.circuits.circuitboard.CircuitBoardBlockEntity;
 import org.patryk3211.powergrid.circuits.circuitboard.ComponentCircuitBuilder;
 import org.patryk3211.powergrid.circuits.components.IComponentGoggleInformation;
 import org.patryk3211.powergrid.circuits.components.IInteractableComponent;
-import org.patryk3211.powergrid.circuits.components.IRenderedComponent;
 import org.patryk3211.powergrid.circuits.components.OrientableComponent;
 import org.patryk3211.powergrid.circuits.components.properties.BooleanProperty;
 import org.patryk3211.powergrid.circuits.components.properties.ComponentProperty;
@@ -28,27 +26,40 @@ import org.patryk3211.powergrid.circuits.schematic.ComponentFootprint;
 import org.patryk3211.powergrid.circuits.schematic.PlacedComponent;
 import org.patryk3211.powergrid.circuits.thermal.ThermalBuilder;
 import org.patryk3211.powergrid.collections.ModdedTags;
-import org.patryk3211.powergrid.utility.PlayerUtilities;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 /**
- * A ribbon cable connector pad on a circuit board. Two connectors are
- * linked by right-clicking one, then the other, while holding a
- * {@code ribbon_cable} item (mirroring how PowerGrid's own wires work) -
- * each connector can only hold one cable at a time. Right-clicking a
- * linked connector with wire cutters (the {@code powergrid:wire_cutters}
- * item tag) removes the cable and refunds cable items based on its length.
- * <p>
- * This class owns the component's state/networking/business logic only.
- * The pending-connection "which item is glowing right now" state lives on
- * the held ItemStack itself (see {@link RibbonCableConnectionRequest} /
- * {@link RibbonCableItem}), and the actual mesh-building for the cable
- * lives in {@link RibbonCableRenderer}.
+ * 4-pin ribbon connector. Two flavors are registered from this same class -
+ * SIDE (mounted sticking out of the board's edge) and FRONT (mounted
+ * sticking straight out of the board's face, like a card standing up in a
+ * slot). Cable drawing lives in RibbonCableClient / RibbonCableRenderer
+ * (com.power.usefulcomponents.render) - this class only handles component
+ * behavior: properties, pins, linking, and now cutting/cost/cleanup.
+ *
+ * Linking: right-click one connector with a Ribbon Cable item, then
+ * right-click a second connector (any board) to link them. A connector
+ * already linked refuses a new cable. Linking now costs
+ * {@code ceil(distance / 2)} Ribbon Cable items (1 per 2 blocks), skipped
+ * entirely in creative mode, mirroring Power Grid's own wire-length cost
+ * convention.
+ *
+ * Cutting: right-clicking a linked connector with any item tagged
+ * {@code powergrid:wire_cutters} unlinks it (and its partner) instead of
+ * trying to start a new link.
+ *
+ * Board removal cleanup: Power Grid's Component base class has no
+ * "this component was removed" hook to override, so instead each tick()
+ * checks whether its own partner still resolves (board still loaded and
+ * placed, component UUID still present on it) and self-heals by clearing
+ * its own link if not - this covers "board holding my partner was broken"
+ * without needing an unverified removal callback.
  */
 public class RibbonConnectorComponent extends OrientableComponent
-        implements IComponentGoggleInformation, IInteractableComponent, IRenderedComponent {
+        implements IComponentGoggleInformation, IInteractableComponent {
 
     public enum Orientation { SIDE, FRONT }
 
@@ -57,12 +68,48 @@ public class RibbonConnectorComponent extends OrientableComponent
     public static final int PIN_C = 2;
     public static final int PIN_D = 3;
 
+    /** 1 Ribbon Cable item per this many blocks of straight-line board-to-board distance. */
+    private static final double BLOCKS_PER_ITEM = 2.0D;
+
+    /** Ribbon Cable items a cable between two boards costs (and gives back when it is removed). */
+    public static int cableCost(@NotNull BlockPos a, @NotNull BlockPos b) {
+        double distance = Math.sqrt(a.distSqr(b));
+        return (int) Math.max(1, Math.ceil(distance / BLOCKS_PER_ITEM));
+    }
+
+    /** Puts {@code items} Ribbon Cable into the player's inventory, dropping what doesn't fit. Not in creative. */
+    public static void giveBack(@NotNull Player player, int items) {
+        if (items <= 0 || player.isCreative())
+            return;
+        int max = ModItems.RIBBON_CABLE.get().getDefaultMaxStackSize();
+        while (items > 0) {
+            ItemStack stack = new ItemStack(ModItems.RIBBON_CABLE.get(), Math.min(items, max));
+            items -= stack.getCount();
+            if (!player.getInventory().add(stack))
+                player.drop(stack, false);
+        }
+    }
+
+    /** Drops {@code items} Ribbon Cable as item entities at {@code pos}. */
+    public static void dropItems(@NotNull Level level, @NotNull BlockPos pos, int items) {
+        if (items <= 0 || !(level instanceof ServerLevel))
+            return;
+        int max = ModItems.RIBBON_CABLE.get().getDefaultMaxStackSize();
+        while (items > 0) {
+            ItemStack stack = new ItemStack(ModItems.RIBBON_CABLE.get(), Math.min(items, max));
+            items -= stack.getCount();
+            Block.popResource(level, pos, stack);
+        }
+    }
+
     public static final BooleanProperty LINKED =
-            new BooleanProperty(UsefulComponents.MODID, "ribbon_linked");
+            new BooleanProperty(UsefulComponents.MODID, "ribbon_linked").hidden().cast();
     public static final StringProperty PARTNER_POS =
-            new StringProperty(UsefulComponents.MODID, "ribbon_partner_pos");
+            new StringProperty(UsefulComponents.MODID, "ribbon_partner_pos").hidden().cast();
     public static final StringProperty PARTNER_UUID =
-            new StringProperty(UsefulComponents.MODID, "ribbon_partner_uuid");
+            new StringProperty(UsefulComponents.MODID, "ribbon_partner_uuid").hidden().cast();
+
+    private static final Map<UUID, PendingEnd> PENDING = new HashMap<>();
 
     private final Orientation orientation;
 
@@ -71,8 +118,8 @@ public class RibbonConnectorComponent extends OrientableComponent
         this.orientation = orientation;
     }
 
-    /** Used by {@link RibbonCableRenderer} to pick the right anchor side (front face vs. edge). */
-    public Orientation orientation() {
+    /** Used by the cable renderer to tell SIDE and FRONT connectors apart. */
+    public Orientation getOrientation() {
         return orientation;
     }
 
@@ -94,48 +141,77 @@ public class RibbonConnectorComponent extends OrientableComponent
     }
 
     @Override
-    public net.minecraft.world.phys.shapes.VoxelShape getShape(@NotNull PlacedComponent placed) {
+    public boolean tick(@NotNull PlacedComponent placed) {
+        if (placed.isClient()) {
+            // Tell the client cable renderer / cutter that this cable exists.
+            RibbonCables.touchClient(placed);
+            return true;
+        }
+        // Self-healing cleanup: if we're supposedly linked but the partner
+        // no longer resolves (its board was broken, or the component is
+        // otherwise gone), drop our own link so we don't stay "connected"
+        // to nothing forever. A partner whose chunk is merely unloaded is
+        // NOT gone - that case is left alone (and never force-loaded).
+        if (placed.get(LINKED)) {
+            BlockPos partnerBoard = decodePartnerPos(placed);
+            boolean partnerChunkLoaded = partnerBoard != null && placed.getWorld().hasChunkAt(partnerBoard);
+            if (partnerChunkLoaded && findPartner(placed) == null) {
+                // The other end is gone (board destroyed some way that wasn't
+                // a player breaking it): the cable falls off at this end.
+                dropItems(placed.getWorld(), placed.getPos(), cableCost(placed.getPos(), partnerBoard));
+                RibbonLinks.drop(placed.getUUID());
+                placed.set(LINKED, false);
+                placed.setString(PARTNER_POS, "");
+                placed.setString(PARTNER_UUID, "");
+                placed.notifyClients(LINKED);
+                placed.notifyClients(PARTNER_POS);
+                placed.notifyClients(PARTNER_UUID);
+                return true;
+            }
+        }
+        // Keep the four pins electrically joined to the partner's pins.
+        RibbonLinks.sync(placed);
+        return true;
+    }
+
+    @Override
+    public VoxelShape getShape(@NotNull PlacedComponent placed) {
         return IInteractableComponent.extrudedFootprint(placed, 2 / 16f);
     }
 
     @Override
     public InteractionResult use(@NotNull CircuitBoardBlockEntity be, @NotNull PlacedComponent component,
                                   @NotNull Player player) {
-        ItemStack held = player.getMainHandItem();
-
-        if (held.is(ModdedTags.Item.WIRE_CUTTERS.tag) || held.is(ModdedTags.Item.BAD_WIRE_CUTTERS.tag))
-            return tryCut(component, player);
-
-        if (!held.is(ModItems.RIBBON_CABLE.get()))
-            return InteractionResult.PASS;
         if (player.level().isClientSide)
             return InteractionResult.SUCCESS;
 
-        var pendingKey = ModDataComponents.PENDING_RIBBON_CONNECTION.get();
-        RibbonCableConnectionRequest pending = held.get(pendingKey);
-
-        if (player.isShiftKeyDown() && pending != null) {
-            held.remove(pendingKey);
-            player.displayClientMessage(Component.literal("Selection cancelled."), true);
-            return InteractionResult.SUCCESS;
+        // Cutters: unlink instead of trying to start/continue a new link.
+        if (player.getMainHandItem().is(ModdedTags.Item.WIRE_CUTTERS.tag)) {
+            return handleCut(component, player);
         }
 
+        if (!player.getMainHandItem().is(ModItems.RIBBON_CABLE.get()))
+            return InteractionResult.PASS;
+
+        UUID playerId = player.getUUID();
         BlockPos thisBoardPos = be.getBlockPos();
         UUID thisComponentId = component.getUUID();
+
+        PendingEnd pending = PENDING.get(playerId);
 
         if (pending == null) {
             if (component.get(LINKED)) {
                 player.displayClientMessage(Component.literal("This connector already has a cable attached."), true);
                 return InteractionResult.SUCCESS;
             }
-            held.set(pendingKey, new RibbonCableConnectionRequest(thisBoardPos, thisComponentId));
-            player.displayClientMessage(
-                    Component.literal("First connector selected - right-click the second one (sneak-click to cancel)."), true);
+            PENDING.put(playerId, new PendingEnd(thisBoardPos, thisComponentId));
+            player.displayClientMessage(Component.literal("First connector selected - right-click the second one."), true);
             return InteractionResult.SUCCESS;
         }
 
-        if (pending.boardPos().equals(thisBoardPos) && pending.componentId().equals(thisComponentId)) {
-            held.remove(pendingKey);
+        PENDING.remove(playerId);
+
+        if (pending.boardPos.equals(thisBoardPos) && pending.componentId.equals(thisComponentId)) {
             player.displayClientMessage(Component.literal("Selection cancelled."), true);
             return InteractionResult.SUCCESS;
         }
@@ -145,22 +221,20 @@ public class RibbonConnectorComponent extends OrientableComponent
             return InteractionResult.SUCCESS;
         }
 
-        if (!(player.level().getBlockEntity(pending.boardPos()) instanceof CircuitBoardBlockEntity otherBoard)) {
+        if (!(player.level().getBlockEntity(pending.boardPos) instanceof CircuitBoardBlockEntity otherBoard)) {
             player.displayClientMessage(Component.literal("The other board is no longer there."), true);
-            held.remove(pendingKey);
             return InteractionResult.SUCCESS;
         }
 
         PlacedComponent other = null;
         for (PlacedComponent candidate : otherBoard.getComponents(RibbonConnectorComponent.class)) {
-            if (candidate.getUUID().equals(pending.componentId())) {
+            if (candidate.getUUID().equals(pending.componentId)) {
                 other = candidate;
                 break;
             }
         }
         if (other == null) {
             player.displayClientMessage(Component.literal("The other connector is no longer there."), true);
-            held.remove(pendingKey);
             return InteractionResult.SUCCESS;
         }
         if (other.get(LINKED)) {
@@ -168,64 +242,82 @@ public class RibbonConnectorComponent extends OrientableComponent
             return InteractionResult.SUCCESS;
         }
 
-        int cost = itemCost(RibbonCableRenderer.cableLength(component, other));
-        if (!PlayerUtilities.hasEnoughItems(player, held, cost)) {
-            player.displayClientMessage(
-                    Component.literal("Not enough ribbon cable - need " + cost + "."), true);
-            return InteractionResult.SUCCESS;
+        // Distance-based cost: 1 Ribbon Cable item per 2 blocks, skipped in creative.
+        if (!player.isCreative()) {
+            int itemsNeeded = cableCost(thisBoardPos, pending.boardPos);
+            var heldStack = player.getMainHandItem();
+            if (heldStack.getCount() < itemsNeeded) {
+                player.displayClientMessage(Component.literal(
+                        "Not enough Ribbon Cable - need " + itemsNeeded + " for this distance."), true);
+                return InteractionResult.SUCCESS;
+            }
+            heldStack.shrink(itemsNeeded);
         }
-        PlayerUtilities.removeItems(player, held, cost);
-        held.remove(pendingKey);
 
-        link(component, pending.boardPos(), pending.componentId());
-        link(other, thisBoardPos, thisComponentId);
-
-        player.displayClientMessage(Component.literal("Ribbon cable connected (" + cost + " used)."), true);
-        return InteractionResult.SUCCESS;
-    }
-
-    private InteractionResult tryCut(@NotNull PlacedComponent component, @NotNull Player player) {
-        if (!component.get(LINKED))
-            return InteractionResult.PASS;
-        if (player.level().isClientSide)
-            return InteractionResult.SUCCESS;
-
-        PlacedComponent partner = findPartner(component);
-        int refund = partner != null ? itemCost(RibbonCableRenderer.cableLength(component, partner)) : 1;
-
-        unlink(component);
-        if (partner != null)
-            unlink(partner);
-
-        ItemStack refundStack = new ItemStack(ModItems.RIBBON_CABLE.get(), refund);
-        if (!player.getInventory().add(refundStack))
-            player.drop(refundStack, false);
-
-        player.displayClientMessage(Component.literal("Ribbon cable cut - " + refund + " returned."), true);
-        return InteractionResult.SUCCESS;
-    }
-
-    /** items = ceil(length_in_blocks * ribbonItemsPerBlock), minimum 1. Governs both connecting cost and cutting refund. */
-    private static int itemCost(double lengthBlocks) {
-        return Math.max(1, (int) Math.ceil(lengthBlocks * UsefulComponentsConfig.RIBBON_ITEMS_PER_BLOCK.get()));
-    }
-
-    private static void link(PlacedComponent component, BlockPos partnerPos, UUID partnerId) {
         component.set(LINKED, true);
-        component.setString(PARTNER_POS, encodePos(partnerPos));
-        component.setString(PARTNER_UUID, encodeUuid(partnerId));
+        component.setString(PARTNER_POS, encodePos(pending.boardPos));
+        component.setString(PARTNER_UUID, encodeUuid(pending.componentId));
         component.notifyClients(LINKED);
         component.notifyClients(PARTNER_POS);
         component.notifyClients(PARTNER_UUID);
+
+        other.set(LINKED, true);
+        other.setString(PARTNER_POS, encodePos(thisBoardPos));
+        other.setString(PARTNER_UUID, encodeUuid(thisComponentId));
+        other.notifyClients(LINKED);
+        other.notifyClients(PARTNER_POS);
+        other.notifyClients(PARTNER_UUID);
+
+        // Wire the pins together right away instead of waiting for the next tick.
+        RibbonLinks.sync(component);
+
+        player.displayClientMessage(Component.literal("Ribbon cable connected."), true);
+        return InteractionResult.SUCCESS;
     }
 
-    private static void unlink(PlacedComponent component) {
+    private static InteractionResult handleCut(@NotNull PlacedComponent component, @NotNull Player player) {
+        int items = unlink(component);
+        if (items < 0) {
+            player.displayClientMessage(Component.literal("Nothing to cut here."), true);
+            return InteractionResult.SUCCESS;
+        }
+        giveBack(player, items);
+        player.displayClientMessage(Component.literal("Ribbon cable cut."), true);
+        return InteractionResult.SUCCESS;
+    }
+
+    /**
+     * Removes the cable of this connector from BOTH ends (and the electrical
+     * link between them). Server side. Returns how many Ribbon Cable items
+     * that cable was worth (see {@link #cableCost}), or -1 if it wasn't linked.
+     */
+    public static int unlink(@NotNull PlacedComponent component) {
+        if (!component.get(LINKED))
+            return -1;
+
+        PlacedComponent partner = findPartner(component);
+        BlockPos partnerBoard = decodePartnerPos(component);
+        int items = partnerBoard != null ? cableCost(component.getPos(), partnerBoard) : 1;
+
+        // Remove the electrical connection first, then the saved link.
+        RibbonLinks.drop(component.getUUID());
+
         component.set(LINKED, false);
         component.setString(PARTNER_POS, "");
         component.setString(PARTNER_UUID, "");
         component.notifyClients(LINKED);
         component.notifyClients(PARTNER_POS);
         component.notifyClients(PARTNER_UUID);
+
+        if (partner != null) {
+            partner.set(LINKED, false);
+            partner.setString(PARTNER_POS, "");
+            partner.setString(PARTNER_UUID, "");
+            partner.notifyClients(LINKED);
+            partner.notifyClients(PARTNER_POS);
+            partner.notifyClients(PARTNER_UUID);
+        }
+        return items;
     }
 
     @Override
@@ -233,17 +325,7 @@ public class RibbonConnectorComponent extends OrientableComponent
                                        boolean isPlayerSneaking) {
         tooltip.add(Component.literal(orientation == Orientation.SIDE
                 ? "Ribbon connector (side)" : "Ribbon connector (front)"));
-        if (!placed.get(LINKED)) {
-            tooltip.add(Component.literal("Not linked"));
-            return true;
-        }
-        PlacedComponent partner = findPartner(placed);
-        if (partner == null) {
-            tooltip.add(Component.literal("Linked - partner missing"));
-            return true;
-        }
-        double length = RibbonCableRenderer.cableLength(placed, partner);
-        tooltip.add(Component.literal(String.format("Linked - %.1f blocks (%d cable used)", length, itemCost(length))));
+        tooltip.add(Component.literal(placed.get(LINKED) ? "Linked" : "Not linked"));
         return true;
     }
 
@@ -282,8 +364,21 @@ public class RibbonConnectorComponent extends OrientableComponent
         }
     }
 
+    /** Component UUID of this connector's partner, or null if not linked / unreadable. */
     @Nullable
-    private static PlacedComponent findPartner(@NotNull PlacedComponent placed) {
+    public static UUID decodePartnerId(@NotNull PlacedComponent placed) {
+        return decodeUuid(placed.getString(PARTNER_UUID));
+    }
+
+    /** Board position of this connector's partner, or null if not linked / unreadable. */
+    @Nullable
+    public static BlockPos decodePartnerPos(@NotNull PlacedComponent placed) {
+        return decodePos(placed.getString(PARTNER_POS));
+    }
+
+    /** Public so the cable renderer (a different package) can use it too. */
+    @Nullable
+    public static PlacedComponent findPartner(@NotNull PlacedComponent placed) {
         if (!placed.get(LINKED))
             return null;
         BlockPos partnerBoardPos = decodePos(placed.getString(PARTNER_POS));
@@ -299,17 +394,6 @@ public class RibbonConnectorComponent extends OrientableComponent
         return null;
     }
 
-    @Override
-    public void render(@NotNull CircuitBoardBlockEntity be, @NotNull PlacedComponent placed, float partialTicks,
-                        @NotNull PoseStack ms, @NotNull MultiBufferSource bufferSource, int light, int overlay) {
-        if (!placed.get(LINKED))
-            return;
-        PlacedComponent partner = findPartner(placed);
-        if (partner == null)
-            return;
-        // Only draw once per pair - let the "lower" UUID side own the draw call.
-        if (placed.getUUID().compareTo(partner.getUUID()) > 0)
-            return;
-        RibbonCableRenderer.render(be, placed, partner, ms, bufferSource, light, overlay);
+    private record PendingEnd(BlockPos boardPos, UUID componentId) {
     }
 }
