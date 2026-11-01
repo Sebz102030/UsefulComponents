@@ -2,6 +2,7 @@ package com.power.usefulcomponents.registry;
 
 import com.power.usefulcomponents.UsefulComponents;
 import com.power.usefulcomponents.components.DifferentialComparatorComponent;
+import com.power.usefulcomponents.components.MotionSensorComponent;
 import com.power.usefulcomponents.components.RibbonConnectorComponent;
 import com.power.usefulcomponents.components.SignalOscillatorComponent;
 import com.power.usefulcomponents.components.VoltageRegulatorComponent;
@@ -20,6 +21,10 @@ public final class PowerchipRegistries {
     public static final ResourceLocation DIFFERENTIAL_COMPARATOR_ID = id("differential_comparator");
     public static final ResourceLocation RIBBON_CONNECTOR_SIDE_ID = id("ribbon_connector_side");
     public static final ResourceLocation RIBBON_CONNECTOR_FRONT_ID = id("ribbon_connector_front");
+
+    public static final ResourceLocation RIBBON_CONNECTOR_10_SIDE_ID = id("ribbon_connector_10_side");
+    public static final ResourceLocation RIBBON_CONNECTOR_10_FRONT_ID = id("ribbon_connector_10_front");
+    public static final ResourceLocation MOTION_SENSOR_ID = id("motion_sensor");
 
     private PowerchipRegistries() {
     }
@@ -71,11 +76,11 @@ public final class PowerchipRegistries {
     private static RibbonConnectorComponent buildRibbonConnectorSide() {
         // 4 (w) x 2 (l) footprint, all 4 pins along the top row.
         String base = "component." + UsefulComponents.MODID + ".ribbon_connector_side";
-        var footprint = new ComponentFootprint.Builder(4, 2, base, null)
-                .addPad(0, 0, RibbonConnectorComponent.PIN_A, "A", "A")
-                .addPad(1, 0, RibbonConnectorComponent.PIN_B, "B", "B")
-                .addPad(2, 0, RibbonConnectorComponent.PIN_C, "C", "C")
-                .addPad(3, 0, RibbonConnectorComponent.PIN_D, "D", "D")
+        var footprint = new ComponentFootprint.Builder(6, 2, base, null)
+                .addPad(1, 0, RibbonConnectorComponent.PIN_A, "A", "A")
+                .addPad(2, 0, RibbonConnectorComponent.PIN_B, "B", "B")
+                .addPad(3, 0, RibbonConnectorComponent.PIN_C, "C", "C")
+                .addPad(4, 0, RibbonConnectorComponent.PIN_D, "D", "D")
                 .withItem()
                 .withOutline()
                 .build();
@@ -83,18 +88,43 @@ public final class PowerchipRegistries {
     }
 
     private static RibbonConnectorComponent buildRibbonConnectorFront() {
-        // Same footprint/pins as the SIDE variant; only mounting direction
-        // (and eventually model/texture) differs.
         String base = "component." + UsefulComponents.MODID + ".ribbon_connector_front";
-        var footprint = new ComponentFootprint.Builder(4, 2, base, null)
-                .addPad(0, 0, RibbonConnectorComponent.PIN_A, "A", "A")
-                .addPad(1, 0, RibbonConnectorComponent.PIN_B, "B", "B")
-                .addPad(2, 0, RibbonConnectorComponent.PIN_C, "C", "C")
-                .addPad(3, 0, RibbonConnectorComponent.PIN_D, "D", "D")
+        var footprint = new ComponentFootprint.Builder(6, 2, base, null)
+                .addPad(1, 0, RibbonConnectorComponent.PIN_A, "A", "A")
+                .addPad(2, 0, RibbonConnectorComponent.PIN_B, "B", "B")
+                .addPad(3, 0, RibbonConnectorComponent.PIN_C, "C", "C")
+                .addPad(4, 0, RibbonConnectorComponent.PIN_D, "D", "D")
                 .withItem()
                 .withOutline()
                 .build();
         return new RibbonConnectorComponent(footprint, RibbonConnectorComponent.Orientation.FRONT);
+    }
+
+    private static RibbonConnectorComponent buildRibbonConnector10(String name, RibbonConnectorComponent.Orientation orientation) {
+        // 12 (w) x 2 (l) footprint, 10 pins at 1 px pitch along the top row.
+        String base = "component." + UsefulComponents.MODID + "." + name;
+        var builder = new ComponentFootprint.Builder(12, 2, base, null);
+        for (int i = 0; i < RibbonConnectorComponent.PINS_WIDE; i++) {
+            String label = String.valueOf(i + 1);
+            builder.addPad(1 + i, 0, i, label, label);
+        }
+        var footprint = builder.withItem().withOutline().build();
+        return new RibbonConnectorComponent(footprint, orientation, RibbonConnectorComponent.PINS_WIDE);
+    }
+
+    private static MotionSensorComponent buildMotionSensor() {
+        // 3 (w) x 2 (l) footprint. Pads on the top row: GND, VCC, OUT. The arrow
+        // (rotating with the component) shows where the sensor looks: away from the pads.
+        String base = "component." + UsefulComponents.MODID + ".motion_sensor";
+        var footprint = new ComponentFootprint.Builder(3, 2, base, null)
+                .addPad(0, 0, MotionSensorComponent.PIN_GND, "GND", "GND")
+                .addPad(1, 0, MotionSensorComponent.PIN_VCC, "VCC", "VCC")
+                .addPad(2, 0, MotionSensorComponent.PIN_OUT, "OUT", "OUT")
+                .withItem()
+                .withArrow(MotionSensorComponent.BASE_FACING)
+                .withOutline()
+                .build();
+        return new MotionSensorComponent(footprint);
     }
 
     @SubscribeEvent
@@ -108,7 +138,12 @@ public final class PowerchipRegistries {
             event.register(ComponentRegistry.REGISTRY_KEY, DIFFERENTIAL_COMPARATOR_ID, () -> buildDifferentialComparator());
             event.register(ComponentRegistry.REGISTRY_KEY, RIBBON_CONNECTOR_SIDE_ID, () -> buildRibbonConnectorSide());
             event.register(ComponentRegistry.REGISTRY_KEY, RIBBON_CONNECTOR_FRONT_ID, () -> buildRibbonConnectorFront());
-            UsefulComponents.LOGGER.info("Registered {} custom powergrid components", 5);
+            event.register(ComponentRegistry.REGISTRY_KEY, RIBBON_CONNECTOR_10_SIDE_ID,
+                    () -> buildRibbonConnector10("ribbon_connector_10_side", RibbonConnectorComponent.Orientation.SIDE));
+            event.register(ComponentRegistry.REGISTRY_KEY, RIBBON_CONNECTOR_10_FRONT_ID,
+                    () -> buildRibbonConnector10("ribbon_connector_10_front", RibbonConnectorComponent.Orientation.FRONT));
+            event.register(ComponentRegistry.REGISTRY_KEY, MOTION_SENSOR_ID, () -> buildMotionSensor());
+            UsefulComponents.LOGGER.info("Registered {} custom powergrid components", 8);
         }
     }
 

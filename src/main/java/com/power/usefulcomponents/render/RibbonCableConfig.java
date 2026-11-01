@@ -57,10 +57,26 @@ import java.util.Map;
  */
 public final class RibbonCableConfig {
 
-    public record Face(ResourceLocation texture, float u0, float v0, float u1, float v1, float lengthPx) {
+    public record Face(ResourceLocation texture, float u0, float v0, float u1, float v1, float lengthPx, float widthPx) {
         /** World length (in blocks) of one full run of this face, at 1:1 texel density. */
         public float length() {
             return lengthPx / 16f;
+        }
+
+        /**
+         * u at the CENTRE of the left-most texel column of this face. The thin
+         * side walls of the ribbon must sample here and not at the exact edge
+         * ({@link #u(float) u(0)}): right on the edge, rounding decides between
+         * this column and the neighbouring one (or the opposite edge, because
+         * the texture repeats), which shows up as pixels of the wrong colour.
+         */
+        public float uLeftInner() {
+            return u0 + (u1 - u0) * (0.5f / widthPx);
+        }
+
+        /** Same as {@link #uLeftInner()} for the right-most texel column. */
+        public float uRightInner() {
+            return u0 + (u1 - u0) * (1f - 0.5f / widthPx);
         }
 
         /** Maps a local 0-1 fraction along U into this face's own uv sub-rect. */
@@ -75,30 +91,43 @@ public final class RibbonCableConfig {
     }
 
     public final float thickness;
+    /** How far (blocks) the start of each end piece sits INSIDE the connector body; hidden there, not part of the visible run. */
+    public final float endInset;
     public final Face end;
     public final Face endFlip;
     public final Face middle;
 
-    private RibbonCableConfig(float thickness, Face end, Face endFlip, Face middle) {
+    private RibbonCableConfig(float thickness, float endInset, Face end, Face endFlip, Face middle) {
         this.thickness = thickness;
+        this.endInset = Math.max(0f, Math.min(endInset, Math.min(end.length(), endFlip.length()) - 1.0e-4f));
         this.end = end;
         this.endFlip = endFlip;
         this.middle = middle;
     }
 
-    private static final ResourceLocation CONFIG_LOCATION =
-            ResourceLocation.fromNamespaceAndPath(UsefulComponents.MODID, "models/ribbon_cable.json");
+    /** Pin count of the standard ribbon cable (4 px wide). */
+    public static final int STANDARD_PINS = 4;
 
-    @Nullable
-    private static RibbonCableConfig cached;
+    /** One cached config per pin count; 4 pins reads ribbon_cable.json, any other count reads ribbon_cable_<n>.json. */
+    private static final Map<Integer, RibbonCableConfig> CACHE = new HashMap<>();
 
-    public static RibbonCableConfig get() {
-        if (cached == null)
-            cached = load();
-        return cached;
+    private static ResourceLocation locationFor(int pins) {
+        String name = pins == STANDARD_PINS ? "models/ribbon_cable.json" : "models/ribbon_cable_" + pins + ".json";
+        return ResourceLocation.fromNamespaceAndPath(UsefulComponents.MODID, name);
     }
 
-    private static RibbonCableConfig load() {
+    /** The standard (4-pin) cable look. */
+    public static RibbonCableConfig get() {
+        return get(STANDARD_PINS);
+    }
+
+    /** The cable look for a cable with this many conductors (its width in pixels equals its pin count). */
+    public static RibbonCableConfig get(int pins) {
+        return CACHE.computeIfAbsent(pins, RibbonCableConfig::load);
+    }
+
+    private static RibbonCableConfig load(int pins) {
+        ResourceLocation CONFIG_LOCATION = locationFor(pins);
         try {
             Resource resource = Minecraft.getInstance().getResourceManager().getResourceOrThrow(CONFIG_LOCATION);
             try (Reader reader = resource.openAsReader()) {
@@ -118,21 +147,25 @@ public final class RibbonCableConfig {
                 JsonObject element = json.getAsJsonArray("elements").get(0).getAsJsonObject();
                 JsonObject faces = GsonHelper.getAsJsonObject(element, "faces");
 
+                // How many pixels of each end texture are tucked inside the connector.
+                float endInset = GsonHelper.getAsFloat(json, "end_inset", 1f) / 16f;
+
                 Face end = parseFace(faces.getAsJsonObject("end"), textures, textureSize);
                 Face endFlip = parseFace(faces.getAsJsonObject("endflip"), textures, textureSize);
                 Face middle = parseFace(faces.getAsJsonObject("middle"), textures, textureSize);
 
-                return new RibbonCableConfig(thickness, end, endFlip, middle);
+                return new RibbonCableConfig(thickness, endInset, end, endFlip, middle);
             }
         } catch (Exception e) {
             UsefulComponents.LOGGER.warn("Could not load {} - falling back to default ribbon cable look",
                     CONFIG_LOCATION, e);
-            ResourceLocation endTex = ResourceLocation.fromNamespaceAndPath(UsefulComponents.MODID, "block/component/ribbon_cable_end");
-            ResourceLocation midTex = ResourceLocation.fromNamespaceAndPath(UsefulComponents.MODID, "block/component/ribbon_cable_middle");
-            return new RibbonCableConfig(0.25f,
-                    new Face(endTex, 0f, 0f, 1f, 1f, 2f),
-                    new Face(endTex, 1f, 1f, 0f, 0f, 2f),
-                    new Face(midTex, 0f, 0f, 1f, 1f, 4f));
+            String suffix = pins == STANDARD_PINS ? "" : "_" + pins;
+            ResourceLocation endTex = ResourceLocation.fromNamespaceAndPath(UsefulComponents.MODID, "block/component/ribbon_cable" + suffix + "_end");
+            ResourceLocation midTex = ResourceLocation.fromNamespaceAndPath(UsefulComponents.MODID, "block/component/ribbon_cable" + suffix + "_middle");
+            return new RibbonCableConfig(0.25f, 1f / 16f,
+                    new Face(endTex, 0f, 0f, 1f, 1f, 3f, pins),
+                    new Face(endTex, 1f, 1f, 0f, 0f, 3f, pins),
+                    new Face(midTex, 0f, 0f, 1f, 1f, 4f, pins));
         }
     }
 
@@ -151,7 +184,8 @@ public final class RibbonCableConfig {
             throw new IllegalArgumentException("No texture defined for key: " + textureRef);
 
         float[] size = textureDimensions(texture, textureSize);
-        return new Face(texture, pu0 / size[0], pv0 / size[1], pu1 / size[0], pv1 / size[1], Math.abs(pv1 - pv0));
+        return new Face(texture, pu0 / size[0], pv0 / size[1], pu1 / size[0], pv1 / size[1],
+                Math.abs(pv1 - pv0), Math.max(1f, Math.abs(pu1 - pu0)));
     }
 
     /** Real png size in pixels ({width, height}), or the json's texture_size for both if it can't be read. */
@@ -173,6 +207,6 @@ public final class RibbonCableConfig {
 
     /** For tests/tools that need to force a reload after editing the json in-place. */
     public static void invalidate() {
-        cached = null;
+        CACHE.clear();
     }
 }

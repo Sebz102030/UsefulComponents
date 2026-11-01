@@ -24,6 +24,7 @@ import org.patryk3211.powergrid.circuits.thermal.ThermalBuilder;
 import org.patryk3211.powergrid.electricity.sim.ElectricWire;
 import org.patryk3211.powergrid.electricity.sim.node.FloatingNode;
 import org.patryk3211.powergrid.electricity.sim.node.ProvidedVoltageSourceCoupling;
+import org.patryk3211.powergrid.utility.Lang;
 
 import java.util.List;
 
@@ -246,7 +247,7 @@ public class VoltageRegulatorComponent extends OrientableComponent
 
     @Override
     public VoxelShape getShape(@NotNull PlacedComponent placed) {
-        return IInteractableComponent.extrudedFootprint(placed, 2 / 16f);
+        return IInteractableComponent.extrudedFootprint(placed, 5 / 16f);
     }
 
     @Override
@@ -267,7 +268,7 @@ public class VoltageRegulatorComponent extends OrientableComponent
 
         component.set(TARGET_VOLTAGE, next);
         component.notifyClients(TARGET_VOLTAGE);
-        player.displayClientMessage(Component.literal("Regulator target voltage: " + next + " V"), true);
+        player.displayClientMessage(Component.literal("   Regulator target voltage: " + next + " V"), true);
         return InteractionResult.SUCCESS;
     }
 
@@ -295,7 +296,7 @@ public class VoltageRegulatorComponent extends OrientableComponent
         }
         // Deliberately not showing temperature or the burnout thresholds -
         // those are internal/config-only, never player-visible, per spec.
-        tooltip.add(Component.literal("Target: " + placed.get(TARGET_VOLTAGE) + " V"));
+        Lang.text( "Target: " + placed.get(TARGET_VOLTAGE) + " V").forGoggles(tooltip);
         return true;
     }
 

@@ -1,5 +1,6 @@
 package com.power.usefulcomponents.render;
 
+import com.power.usefulcomponents.compat.SableCompat;
 import com.power.usefulcomponents.components.RibbonConnectorComponent;
 import net.createmod.catnip.math.VecHelper;
 import net.minecraft.core.BlockPos;
@@ -18,7 +19,7 @@ public final class RibbonCableGeometry {
 
     /** Radius (blocks) around the cable's centre line that counts as "pointing at the cable". */
     public static final double PICK_RADIUS = 0.16;
-    /** Server-side stand-in for the end cap length (the real one comes from the client-only json). */
+    /** Server-side stand-in for the VISIBLE end piece length (3 px texture - 1 px inside the connector); the real one comes from the client-only json. */
     public static final float DEFAULT_END_RUN = 2 / 16f;
 
     private RibbonCableGeometry() {
@@ -53,6 +54,23 @@ public final class RibbonCableGeometry {
      * </ul>
      */
     public static Anchor computeAnchor(@NotNull PlacedComponent placed) {
+        Anchor local = computeLocalAnchor(placed);
+        var level = placed.getWorld();
+        BlockPos board = placed.getPos();
+        // On a Sable sub-level the board lives at far away "plot" coordinates;
+        // turn the anchor into where it really is (and which way it really
+        // points) so the cable follows the moving structure.
+        if (!SableCompat.isInSubLevel(level, board))
+            return local;
+        Vec3 at = local.point();
+        return new Anchor(SableCompat.toGlobal(level, board, at),
+                SableCompat.toGlobalDirection(level, board, at, local.facing()),
+                SableCompat.toGlobalDirection(level, board, at, local.width()),
+                SableCompat.toGlobalDirection(level, board, at, local.thickness()));
+    }
+
+    /** Anchor in the board's own coordinates (plot coordinates on a sub-level). */
+    private static Anchor computeLocalAnchor(@NotNull PlacedComponent placed) {
         var footprint = placed.footprint();
         float w = footprint.getWidth();
         float h = footprint.getHeight();
@@ -134,9 +152,78 @@ public final class RibbonCableGeometry {
     }
 
 
+    /** Longest "handle" (blocks) the bend is allowed to have; bigger = wider, slower turn. */
+    private static final double BEND_MAX_HANDLE = 1.5;
+    /** Handle length as a fraction of the distance between the two straight end pieces. */
+    private static final double BEND_HANDLE_FACTOR = 0.4;
+    /** Points the pick / cull polyline samples the bend with. */
+    private static final int POLYLINE_BEND_SAMPLES = 24;
+
     /**
-     * The cable's centre line as a polyline p0 (connector A) - p1 - p2 -
-     * p3 (connector B): the two end caps and the straight run between them.
+     * The bend between the two straight end pieces, as the 4 control points
+     * of a cubic Bezier curve. It leaves {@code p1} exactly along
+     * {@code dirA} and arrives at {@code p2} exactly against {@code dirB}
+     * (both are the connectors' outward directions), so the cable keeps
+     * running straight out of each end piece and only starts turning once
+     * the end piece is over.
+     */
+    public static Vec3[] bendControlPoints(Vec3 p1, Vec3 dirA, Vec3 p2, Vec3 dirB, double yLimit) {
+        double handle = Math.min(p1.distanceTo(p2) * BEND_HANDLE_FACTOR, BEND_MAX_HANDLE);
+        double handleA = limitHandle(p1, dirA, handle, yLimit);
+        double handleB = limitHandle(p2, dirB, handle, yLimit);
+        return new Vec3[]{p1, p1.add(dirA.scale(handleA)), p2.add(dirB.scale(handleB)), p2};
+    }
+
+    /**
+     * A Bezier curve never leaves the box spanned by its control points, so
+     * keeping each handle's tip at or below {@code yLimit} keeps the whole
+     * cable at or below it. The handle is shortened (its direction kept)
+     * only when it would reach higher than that.
+     */
+    private static double limitHandle(Vec3 from, Vec3 dir, double handle, double yLimit) {
+        if (dir.y > 1.0e-6 && from.y + dir.y * handle > yLimit)
+            return Math.max(0, (yLimit - from.y) / dir.y);
+        return handle;
+    }
+
+    /**
+     * The highest a cable between these two connectors may reach: the top of
+     * the full block of whichever connector's board is higher. (On a Sable
+     * sub-level this is that block's top in the real world.)
+     */
+    public static double heightLimit(@NotNull PlacedComponent first, @NotNull PlacedComponent second) {
+        return Math.max(blockTop(first), blockTop(second));
+    }
+
+    private static double blockTop(PlacedComponent connector) {
+        BlockPos pos = connector.getPos();
+        Vec3 top = new Vec3(pos.getX() + 0.5, pos.getY() + 1, pos.getZ() + 0.5);
+        return SableCompat.toGlobal(connector.getWorld(), pos, top).y;
+    }
+
+    public static Vec3 bendPoint(Vec3[] c, double t) {
+        double u = 1 - t;
+        return c[0].scale(u * u * u)
+                .add(c[1].scale(3 * u * u * t))
+                .add(c[2].scale(3 * u * t * t))
+                .add(c[3].scale(t * t * t));
+    }
+
+    /** Unit direction of travel along the bend at {@code t} (0 = start, 1 = end). */
+    public static Vec3 bendTangent(Vec3[] c, double t, Vec3 fallback) {
+        double u = 1 - t;
+        Vec3 d = c[1].subtract(c[0]).scale(3 * u * u)
+                .add(c[2].subtract(c[1]).scale(6 * u * t))
+                .add(c[3].subtract(c[2]).scale(3 * t * t));
+        return d.lengthSqr() < 1.0e-12 ? fallback : d.normalize();
+    }
+
+    /**
+     * The cable's centre line as a polyline: p0 (connector A), the straight
+     * end piece to p1, the sampled bend from p1 to p2, and the straight end
+     * piece to p3 (connector B). So the first point is the connector, the
+     * second is where the end piece stops, and the last two are the same for
+     * the other connector.
      */
     public static Vec3[] polyline(@NotNull PlacedComponent first, @NotNull PlacedComponent second,
                                   float endRunFirst, float endRunSecond) {
@@ -144,7 +231,16 @@ public final class RibbonCableGeometry {
         Anchor b = computeAnchor(second);
         Vec3 p0 = a.point();
         Vec3 p3 = b.point();
-        return new Vec3[]{p0, p0.add(a.facing().scale(endRunFirst)), p3.add(b.facing().scale(endRunSecond)), p3};
+        Vec3 p1 = p0.add(a.facing().scale(endRunFirst));
+        Vec3 p2 = p3.add(b.facing().scale(endRunSecond));
+        Vec3[] bend = bendControlPoints(p1, a.facing(), p2, b.facing(), heightLimit(first, second));
+
+        Vec3[] line = new Vec3[POLYLINE_BEND_SAMPLES + 3];
+        line[0] = p0;
+        for (int i = 0; i <= POLYLINE_BEND_SAMPLES; i++)
+            line[1 + i] = bendPoint(bend, i / (double) POLYLINE_BEND_SAMPLES);
+        line[line.length - 1] = p3;
+        return line;
     }
 
     public static Vec3[] polyline(@NotNull PlacedComponent first, @NotNull PlacedComponent second) {

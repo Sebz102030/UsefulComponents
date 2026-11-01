@@ -25,6 +25,10 @@ repositories {
     }
     maven { url = "https://maven.createmod.net" } // Create, Ponder, Flywheel
     maven { url = "https://maven.ithundxr.dev/snapshots" } // Registrate
+    exclusiveContent {
+        forRepository { maven { url = "https://maven.ryanhcode.dev/releases" } } // Sable Companion
+        filter { includeGroup("dev.ryanhcode.sable-companion") }
+    }
 }
 
 base {
@@ -82,9 +86,6 @@ configurations {
 }
 
 dependencies {
-    //implementation "curse.maven:create-328085:7963363"
-    //localRuntime "curse.maven:create-328085:7963363"
-
     implementation("com.simibubi.create:create-${minecraft_version}:${create_version}:slim") { transitive = false }
     implementation("net.createmod.ponder:ponder-neoforge:${ponder_version}+mc${minecraft_version}")
     compileOnly("dev.engine-room.flywheel:flywheel-neoforge-api-${minecraft_version}:${flywheel_version}")
@@ -99,6 +100,14 @@ dependencies {
 
     implementation "curse.maven:architectury-419699:8492726"
     localRuntime "curse.maven:architectury-419699:8492726"
+
+    //def sableCompanionVersion = "1.6.0"
+    jarJar(api("dev.ryanhcode.sable-companion:sable-companion-common-${minecraft_version}:[${sableCompanionVersion},)")) {
+        version { prefer(sableCompanionVersion) }
+    }
+
+    implementation "curse.maven:jei-238222:8792638"
+    localRuntime "curse.maven:jei-238222:8792638"
 }
 
 var generateModMetadata = tasks.register("generateModMetadata", ProcessResources) {

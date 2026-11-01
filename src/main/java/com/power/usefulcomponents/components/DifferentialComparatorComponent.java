@@ -14,7 +14,7 @@ import org.patryk3211.powergrid.electricity.sim.node.ProvidedVoltageSourceCoupli
 
 import java.util.List;
 
-public class DifferentialComparatorComponent extends OrientableComponent implements IComponentGoggleInformation {
+public class DifferentialComparatorComponent extends OrientableComponent {
 
     public static final int PIN_VCC = 0;
     public static final int PIN_GND = 1;
@@ -58,12 +58,5 @@ public class DifferentialComparatorComponent extends OrientableComponent impleme
     @Override
     public @NotNull ResourceLocation getModelId(@NotNull PlacedComponent component) {
         return super.getModelId(component);
-    }
-
-    @Override
-    public boolean addToGoggleTooltip(@NotNull PlacedComponent placed, @NotNull List<Component> tooltip,
-                                       boolean isPlayerSneaking) {
-        tooltip.add(Component.literal("Differential comparator (OUT = IN+ - IN-)"));
-        return true;
     }
 }

@@ -21,6 +21,7 @@ import org.patryk3211.powergrid.circuits.schematic.PlacedComponent;
 import org.patryk3211.powergrid.circuits.thermal.ThermalBuilder;
 import org.patryk3211.powergrid.electricity.sim.node.FloatingNode;
 import org.patryk3211.powergrid.electricity.sim.node.ProvidedVoltageSourceCoupling;
+import org.patryk3211.powergrid.utility.Lang;
 
 import java.util.List;
 
@@ -155,7 +156,7 @@ public class SignalOscillatorComponent extends OrientableComponent
     @Override
     public boolean addToGoggleTooltip(@NotNull PlacedComponent placed, @NotNull List<Component> tooltip,
                                        boolean isPlayerSneaking) {
-        tooltip.add(Component.literal("Frequency: " + placed.get(FREQUENCY) + " Hz"));
+        Lang.text("Frequency: " + placed.get(FREQUENCY) + " Hz").forGoggles(tooltip);
         return true;
     }
 }

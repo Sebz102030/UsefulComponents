@@ -26,6 +26,22 @@ public final class UsefulComponentsConfig {
     // --- Signal Oscillator ---
     public static final ModConfigSpec.IntValue OSCILLATOR_MAX_FREQUENCY;
 
+    // --- Motion Sensor ---
+    public static final ModConfigSpec.DoubleValue SENSOR_BURNOUT_VOLTAGE;
+    public static final ModConfigSpec.IntValue SENSOR_MAX_RANGE;
+    public static final ModConfigSpec.IntValue SENSOR_MAX_DURATION;
+    public static final ModConfigSpec.BooleanValue SENSOR_NEEDS_LINE_OF_SIGHT;
+    public static final ModConfigSpec.BooleanValue SENSOR_DETECT_ITEMS;
+
+    // --- UV Curing Machine ---
+    public static final ModConfigSpec.IntValue UV_MIN_SPEED;
+    public static final ModConfigSpec.IntValue UV_HIGH_SPEED;
+    public static final ModConfigSpec.DoubleValue UV_POWER_LOW;
+    public static final ModConfigSpec.DoubleValue UV_POWER_HIGH;
+    public static final ModConfigSpec.DoubleValue UV_COIL_RESISTANCE;
+    public static final ModConfigSpec.DoubleValue UV_MAX_POWER;
+    public static final ModConfigSpec.DoubleValue UV_STRESS_IMPACT;
+
     static {
         ModConfigSpec.Builder builder = new ModConfigSpec.Builder();
 
@@ -62,6 +78,93 @@ public final class UsefulComponentsConfig {
                 .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
                         + ".oscillatorMaxFrequency")
                 .defineInRange("oscillatorMaxFrequency", 120, 1, 240);
+
+        builder.pop();
+
+        builder.comment("Motion Sensor settings")
+                .push("motionSensor");
+
+        SENSOR_BURNOUT_VOLTAGE = builder
+                .comment("Supply voltage (VCC - GND, in Volts) at which the motion sensor's own heat",
+                        "dissipation reaches its overheat temperature and it burns out (via Power Grid's",
+                        "thermal simulation). Below this voltage it settles at a safe temperature.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".sensorBurnoutVoltage")
+                .defineInRange("sensorBurnoutVoltage", 6.0D, 1.0D, 100.0D);
+
+        SENSOR_MAX_RANGE = builder
+                .comment("Highest detection range (blocks) a motion sensor can be set to.",
+                        "Hard cap is 32 regardless of this value.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".sensorMaxRange")
+                .defineInRange("sensorMaxRange", 16, 1, 32);
+
+        SENSOR_MAX_DURATION = builder
+                .comment("Highest activation duration (seconds) a motion sensor can be set to.",
+                        "Hard cap is 120 regardless of this value.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".sensorMaxDuration")
+                .defineInRange("sensorMaxDuration", 60, 1, 120);
+
+        SENSOR_NEEDS_LINE_OF_SIGHT = builder
+                .comment("If true, solid blocks between the sensor and a moving entity hide that entity from it.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".sensorNeedsLineOfSight")
+                .define("sensorNeedsLineOfSight", true);
+
+        SENSOR_DETECT_ITEMS = builder
+                .comment("If true, moving item entities are detected too (not only living entities).")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".sensorDetectItems")
+                .define("sensorDetectItems", false);
+
+        builder.pop();
+
+        builder.comment("UV Curing Machine settings")
+                .push("uvCuring");
+
+        UV_MIN_SPEED = builder
+                .comment("Minimum rotation speed (RPM, either direction) the machine needs to operate at all.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvMinSpeed")
+                .defineInRange("uvMinSpeed", 32, 1, 256);
+
+        UV_HIGH_SPEED = builder
+                .comment("From this speed (RPM) upward the machine needs the higher electrical power (uvPowerHigh).")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvHighSpeed")
+                .defineInRange("uvHighSpeed", 128, 1, 256);
+
+        UV_POWER_LOW = builder
+                .comment("Electrical power (Watts) needed between uvMinSpeed and uvHighSpeed.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvPowerLow")
+                .defineInRange("uvPowerLow", 10.0D, 0.1D, 10000.0D);
+
+        UV_POWER_HIGH = builder
+                .comment("Electrical power (Watts) needed at uvHighSpeed and above.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvPowerHigh")
+                .defineInRange("uvPowerHigh", 20.0D, 0.1D, 10000.0D);
+
+        UV_COIL_RESISTANCE = builder
+                .comment("Resistance (Ohms) of the UV lamp as seen by the circuit. Power = V^2 / R, so with the",
+                        "default 10 Ohm the 10 W tier needs about 10 V and the 20 W tier about 14.2 V.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvCoilResistance")
+                .defineInRange("uvCoilResistance", 10.0D, 0.1D, 100000.0D);
+
+        UV_MAX_POWER = builder
+                .comment("Electrical power (Watts) the lamp can dissipate continuously before it overheats.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvMaxPower")
+                .defineInRange("uvMaxPower", 60.0D, 1.0D, 100000.0D);
+
+        UV_STRESS_IMPACT = builder
+                .comment("Stress impact (SU per RPM) of the machine.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvStressImpact")
+                .defineInRange("uvStressImpact", 4.0D, 0.0D, 1024.0D);
 
         builder.pop();
 

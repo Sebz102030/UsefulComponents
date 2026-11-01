@@ -2,6 +2,7 @@ package com.power.usefulcomponents.components;
 
 import com.power.usefulcomponents.UsefulComponents;
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.ChunkPos;
 import net.minecraft.world.level.Level;
@@ -10,6 +11,7 @@ import net.neoforged.fml.common.EventBusSubscriber;
 import net.neoforged.neoforge.event.level.ChunkEvent;
 import net.neoforged.neoforge.event.server.ServerStoppedEvent;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 import org.patryk3211.powergrid.circuits.circuitboard.CircuitBoardBlockEntity;
 import org.patryk3211.powergrid.circuits.schematic.CircuitSchematic;
 import org.patryk3211.powergrid.circuits.schematic.PlacedComponent;
@@ -54,7 +56,6 @@ public final class RibbonLinks {
 
     /** Same value Power Grid uses for its own board-to-board via wires. */
     private static final double WIRE_RESISTANCE = 0.002;
-    private static final int PIN_COUNT = 4;
 
     private static final class Link {
         final Level level;
@@ -65,10 +66,14 @@ public final class RibbonLinks {
         final List<ElectricWire> wires = new ArrayList<>();
         ElectricBehaviour behaviourA;
         ElectricBehaviour behaviourB;
-        final IElectricNode[] nodesA = new IElectricNode[PIN_COUNT];
-        final IElectricNode[] nodesB = new IElectricNode[PIN_COUNT];
+        final int pins;
+        final IElectricNode[] nodesA;
+        final IElectricNode[] nodesB;
 
-        Link(Level level, UUID idA, BlockPos boardA, UUID idB, BlockPos boardB) {
+        Link(Level level, UUID idA, BlockPos boardA, UUID idB, BlockPos boardB, int pins) {
+            this.pins = pins;
+            this.nodesA = new IElectricNode[pins];
+            this.nodesB = new IElectricNode[pins];
             this.level = level;
             this.idA = idA;
             this.boardA = boardA;
@@ -92,7 +97,48 @@ public final class RibbonLinks {
     /** Each link is registered under both of its connector UUIDs. */
     private static final Map<UUID, Link> LINKS = new HashMap<>();
 
+    /** Where each linked connector's board was last seen (follows boards moved into / out of sub-levels). */
+    private record Located(ResourceKey<Level> dimension, BlockPos board) {
+    }
+
+    private static final Map<UUID, Located> LOCATIONS = new HashMap<>();
+    /** Connector UUID -> game tick since which its partner could not be found. */
+    private static final Map<UUID, Long> MISSING_SINCE = new HashMap<>();
+    /** Connector UUID -> game tick since which its partner has been in a different sub-level. */
+    private static final Map<UUID, Long> MISMATCH_SINCE = new HashMap<>();
+
     private RibbonLinks() {
+    }
+
+    /** Remembers the board this (linked) connector is on right now. Server side, called from the connector's tick. */
+    public static void noteLocation(@NotNull PlacedComponent placed) {
+        if (placed.getWorld() instanceof ServerLevel level)
+            LOCATIONS.put(placed.getUUID(), new Located(level.dimension(), placed.getPos().immutable()));
+    }
+
+    /** Where the board of connector {@code id} currently is, or null if unknown / in another dimension. */
+    @Nullable
+    public static BlockPos locationOf(@NotNull Level level, @NotNull UUID id) {
+        Located located = LOCATIONS.get(id);
+        return located != null && located.dimension().equals(level.dimension()) ? located.board() : null;
+    }
+
+    /** Ticks the partner of {@code id} has been missing for (starts counting on the first call). */
+    public static long trackMissing(@NotNull UUID id, long now) {
+        return now - MISSING_SINCE.computeIfAbsent(id, k -> now);
+    }
+
+    public static void clearMissing(@NotNull UUID id) {
+        MISSING_SINCE.remove(id);
+    }
+
+    /** Ticks the partner of {@code id} has been in a different sub-level for (starts counting on the first call). */
+    public static long trackSubLevelMismatch(@NotNull UUID id, long now) {
+        return now - MISMATCH_SINCE.computeIfAbsent(id, k -> now);
+    }
+
+    public static void clearSubLevelMismatch(@NotNull UUID id) {
+        MISMATCH_SINCE.remove(id);
     }
 
     /**
@@ -141,11 +187,20 @@ public final class RibbonLinks {
         CircuitBoardBlockEntity beA = hereIsA ? boardHere : boardThere;
         CircuitBoardBlockEntity beB = hereIsA ? boardThere : boardHere;
 
+        // A cable only joins connectors with the same number of pins; anything else is a stale link.
+        int pins = pinsOf(compA);
+        if (pins <= 0 || pins != pinsOf(compB)) {
+            drop(id);
+            return;
+        }
+
         Link link = LINKS.get(compA.getUUID());
-        if (link == null || !link.idA.equals(compA.getUUID()) || !link.idB.equals(compB.getUUID())) {
+        if (link == null || !link.idA.equals(compA.getUUID()) || !link.idB.equals(compB.getUUID())
+                || !link.boardA.equals(beA.getBlockPos()) || !link.boardB.equals(beB.getBlockPos())
+                || link.pins != pins) {
             if (link != null)
                 dropLink(link);
-            link = new Link(level, compA.getUUID(), beA.getBlockPos(), compB.getUUID(), beB.getBlockPos());
+            link = new Link(level, compA.getUUID(), beA.getBlockPos(), compB.getUUID(), beB.getBlockPos(), pins);
             LINKS.put(link.idA, link);
             LINKS.put(link.idB, link);
         }
@@ -158,10 +213,10 @@ public final class RibbonLinks {
             return;
         }
 
-        IElectricNode[] currentA = new IElectricNode[PIN_COUNT];
-        IElectricNode[] currentB = new IElectricNode[PIN_COUNT];
+        IElectricNode[] currentA = new IElectricNode[link.pins];
+        IElectricNode[] currentB = new IElectricNode[link.pins];
         try {
-            for (int i = 0; i < PIN_COUNT; i++) {
+            for (int i = 0; i < link.pins; i++) {
                 currentA[i] = beA.getBaked().getNode(new CircuitSchematic.Node(compA, i));
                 currentB[i] = beB.getBaked().getNode(new CircuitSchematic.Node(compB, i));
             }
@@ -178,11 +233,16 @@ public final class RibbonLinks {
         connect(link, level, ebA, ebB, currentA, currentB);
     }
 
+    /** Pin count of a ribbon connector, or 0 if the component isn't one. */
+    private static int pinsOf(@NotNull PlacedComponent placed) {
+        return placed.component instanceof RibbonConnectorComponent rcc ? rcc.getPinCount() : 0;
+    }
+
     private static boolean isIntact(Link link, ElectricBehaviour ebA, ElectricBehaviour ebB,
                                     IElectricNode[] currentA, IElectricNode[] currentB) {
         if (!link.hasWires() || link.behaviourA != ebA || link.behaviourB != ebB)
             return false;
-        for (int i = 0; i < PIN_COUNT; i++) {
+        for (int i = 0; i < link.pins; i++) {
             if (link.nodesA[i] != currentA[i] || link.nodesB[i] != currentB[i])
                 return false;
             ElectricWire wire = link.wires.get(i);
@@ -198,7 +258,7 @@ public final class RibbonLinks {
                                 IElectricNode[] nodesA, IElectricNode[] nodesB) {
         link.behaviourA = ebA;
         link.behaviourB = ebB;
-        for (int i = 0; i < PIN_COUNT; i++) {
+        for (int i = 0; i < link.pins; i++) {
             link.nodesA[i] = nodesA[i];
             link.nodesB[i] = nodesB[i];
 
@@ -255,6 +315,9 @@ public final class RibbonLinks {
         Link link = LINKS.get(connectorId);
         if (link != null)
             dropLink(link);
+        LOCATIONS.remove(connectorId);
+        MISSING_SINCE.remove(connectorId);
+        MISMATCH_SINCE.remove(connectorId);
     }
 
     private static void dropWires(UUID connectorId) {
@@ -294,5 +357,8 @@ public final class RibbonLinks {
     @SubscribeEvent
     public static void onServerStopped(ServerStoppedEvent event) {
         LINKS.clear();
+        LOCATIONS.clear();
+        MISSING_SINCE.clear();
+        MISMATCH_SINCE.clear();
     }
 }

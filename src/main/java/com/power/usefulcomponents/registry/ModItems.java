@@ -2,6 +2,7 @@ package com.power.usefulcomponents.registry;
 
 import com.power.usefulcomponents.UsefulComponents;
 import com.power.usefulcomponents.items.IncompletePlaceholder;
+import com.simibubi.create.content.processing.AssemblyOperatorBlockItem;
 import net.minecraft.world.item.Item;
 import net.neoforged.neoforge.registries.DeferredHolder;
 import net.neoforged.neoforge.registries.DeferredRegister;
@@ -33,6 +34,20 @@ public final class ModItems {
 
     public static final DeferredHolder<Item, Item> RIBBON_CONNECTOR_FRONT =
             ITEMS.registerSimpleItem("ribbon_connector_front", new Item.Properties());
+
+    public static final DeferredHolder<Item, Item> RIBBON_CONNECTOR_10_SIDE =
+            ITEMS.registerSimpleItem("ribbon_connector_10_side", new Item.Properties());
+
+    public static final DeferredHolder<Item, Item> RIBBON_CONNECTOR_10_FRONT =
+            ITEMS.registerSimpleItem("ribbon_connector_10_front", new Item.Properties());
+
+    public static final DeferredHolder<Item, Item> MOTION_SENSOR =
+            ITEMS.registerSimpleItem("motion_sensor", new Item.Properties());
+
+    /** Placed like a press: AssemblyOperatorBlockItem lets it be set on a belt/depot-height spot. */
+    public static final DeferredHolder<Item, Item> UV_CURING_MACHINE =
+            ITEMS.register("uv_curing_machine", () ->
+                    new AssemblyOperatorBlockItem(ModBlocks.UV_CURING.get(), new Item.Properties()));
 
     /** Not a component-placing item - see class javadoc. */
     public static final DeferredHolder<Item, Item> RIBBON_CABLE =

@@ -1,0 +1,19 @@
+{
+  "variants": {
+    "facing=north": {
+      "model": "usefulcomponents:block/uv_curing_machine"
+    },
+    "facing=east": {
+      "model": "usefulcomponents:block/uv_curing_machine",
+      "y": 90
+    },
+    "facing=south": {
+      "model": "usefulcomponents:block/uv_curing_machine",
+      "y": 180
+    },
+    "facing=west": {
+      "model": "usefulcomponents:block/uv_curing_machine",
+      "y": 270
+    }
+  }
+}

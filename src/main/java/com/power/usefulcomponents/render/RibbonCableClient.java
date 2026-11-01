@@ -3,6 +3,7 @@ package com.power.usefulcomponents.render;
 import com.mojang.blaze3d.vertex.PoseStack;
 import com.power.usefulcomponents.UsefulComponents;
 import com.power.usefulcomponents.components.RibbonCables;
+import com.power.usefulcomponents.compat.SableCompat;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.client.renderer.LevelRenderer;
@@ -58,13 +59,22 @@ public final class RibbonCableClient {
         for (RibbonCables.Cable cable : cables) {
             try {
                 Vec3[] line = RibbonCableGeometry.polyline(cable.first(), cable.second());
-                AABB box = new AABB(line[0], line[3]).minmax(new AABB(line[1], line[2])).inflate(0.3);
+                AABB box = new AABB(line[0], line[line.length - 1]);
+                for (Vec3 point : line)
+                    box = box.minmax(new AABB(point, point));
+                box = box.inflate(0.3);
                 if (box.distanceToSqr(camera) > MAX_DISTANCE * MAX_DISTANCE || !frustum.isVisible(box))
                     continue;
 
+                // Real positions of a sub-level cable are not where its light
+                // data lives, so sample the light at the boards themselves.
+                BlockPos lightA = SableCompat.isInSubLevel(level, cable.first().getPos())
+                        ? cable.first().getPos() : BlockPos.containing(line[1]);
+                BlockPos lightB = SableCompat.isInSubLevel(level, cable.second().getPos())
+                        ? cable.second().getPos() : BlockPos.containing(line[line.length - 2]);
                 int light = maxLight(
-                        LevelRenderer.getLightColor(level, BlockPos.containing(line[1])),
-                        LevelRenderer.getLightColor(level, BlockPos.containing(line[2])));
+                        LevelRenderer.getLightColor(level, lightA),
+                        LevelRenderer.getLightColor(level, lightB));
 
                 ms.pushPose();
                 RibbonCableRenderer.renderCable(ms, buffers, camera, cable.first(), cable.second(),
