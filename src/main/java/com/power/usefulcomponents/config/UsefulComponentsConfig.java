@@ -35,11 +35,11 @@ public final class UsefulComponentsConfig {
 
     // --- UV Curing Machine ---
     public static final ModConfigSpec.IntValue UV_MIN_SPEED;
-    public static final ModConfigSpec.IntValue UV_HIGH_SPEED;
-    public static final ModConfigSpec.DoubleValue UV_POWER_LOW;
-    public static final ModConfigSpec.DoubleValue UV_POWER_HIGH;
+    public static final ModConfigSpec.DoubleValue UV_HEAT1_POWER;
+    public static final ModConfigSpec.DoubleValue UV_HEAT2_POWER;
+    public static final ModConfigSpec.DoubleValue UV_HEAT3_POWER;
     public static final ModConfigSpec.DoubleValue UV_COIL_RESISTANCE;
-    public static final ModConfigSpec.DoubleValue UV_MAX_POWER;
+    public static final ModConfigSpec.DoubleValue UV_BURNOUT_VOLTAGE;
     public static final ModConfigSpec.DoubleValue UV_STRESS_IMPACT;
 
     static {
@@ -129,36 +129,37 @@ public final class UsefulComponentsConfig {
                         + ".uvMinSpeed")
                 .defineInRange("uvMinSpeed", 32, 1, 256);
 
-        UV_HIGH_SPEED = builder
-                .comment("From this speed (RPM) upward the machine needs the higher electrical power (uvPowerHigh).")
+        UV_HEAT1_POWER = builder
+                .comment("Electrical power (Watts) the lamp must draw for heat level 1.")
                 .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
-                        + ".uvHighSpeed")
-                .defineInRange("uvHighSpeed", 128, 1, 256);
+                        + ".uvHeat1Power")
+                .defineInRange("uvHeat1Power", 10.0D, 0.1D, 10000.0D);
 
-        UV_POWER_LOW = builder
-                .comment("Electrical power (Watts) needed between uvMinSpeed and uvHighSpeed.")
+        UV_HEAT2_POWER = builder
+                .comment("Electrical power (Watts) the lamp must draw for heat level 2.")
                 .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
-                        + ".uvPowerLow")
-                .defineInRange("uvPowerLow", 10.0D, 0.1D, 10000.0D);
+                        + ".uvHeat2Power")
+                .defineInRange("uvHeat2Power", 30.0D, 0.1D, 10000.0D);
 
-        UV_POWER_HIGH = builder
-                .comment("Electrical power (Watts) needed at uvHighSpeed and above.")
+        UV_HEAT3_POWER = builder
+                .comment("Electrical power (Watts) the lamp must draw for heat level 3.")
                 .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
-                        + ".uvPowerHigh")
-                .defineInRange("uvPowerHigh", 20.0D, 0.1D, 10000.0D);
+                        + ".uvHeat3Power")
+                .defineInRange("uvHeat3Power", 50.0D, 0.1D, 10000.0D);
 
         UV_COIL_RESISTANCE = builder
                 .comment("Resistance (Ohms) of the UV lamp as seen by the circuit. Power = V^2 / R, so with the",
-                        "default 10 Ohm the 10 W tier needs about 10 V and the 20 W tier about 14.2 V.")
+                        "default 10 Ohm heat level 1 (10 W) needs about 10 V, level 2 (30 W) about 17.3 V",
+                        "and level 3 (50 W) about 22.4 V.")
                 .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
                         + ".uvCoilResistance")
                 .defineInRange("uvCoilResistance", 10.0D, 0.1D, 100000.0D);
 
-        UV_MAX_POWER = builder
-                .comment("Electrical power (Watts) the lamp can dissipate continuously before it overheats.")
+        UV_BURNOUT_VOLTAGE = builder
+                .comment("Voltage (Volts across the lamp) at which the UV curing machine burns out and explodes.")
                 .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
-                        + ".uvMaxPower")
-                .defineInRange("uvMaxPower", 60.0D, 1.0D, 100000.0D);
+                        + ".uvBurnoutVoltage")
+                .defineInRange("uvBurnoutVoltage", 60.0D, 1.0D, 100000.0D);
 
         UV_STRESS_IMPACT = builder
                 .comment("Stress impact (SU per RPM) of the machine.")

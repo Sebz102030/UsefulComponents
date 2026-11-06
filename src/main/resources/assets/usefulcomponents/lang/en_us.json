@@ -99,5 +99,15 @@
     "component.usefulcomponents.ribbon_connector_10_front.8": "9",
     "component.usefulcomponents.ribbon_connector_10_front.8.short": "9",
     "component.usefulcomponents.ribbon_connector_10_front.9": "10",
-    "component.usefulcomponents.ribbon_connector_10_front.9.short": "10"
+    "component.usefulcomponents.ribbon_connector_10_front.9.short": "10",
+    "block.usefulcomponents.uv_curing_machine.tooltip.summary": "Cures items beneath it with _UV light_. The lamp's _heat level_ depends on the electrical power it draws.",
+    "block.usefulcomponents.uv_curing_machine.tooltip.condition1": "Heat level",
+    "block.usefulcomponents.uv_curing_machine.tooltip.behaviour1": "Level 1 needs _10 W_, level 2 needs _30 W_ and level 3 needs _50 W_ (and a shaft turning at least 32 RPM). Each recipe states the level and the curing time it needs.",
+    "block.usefulcomponents.uv_curing_machine.tooltip.condition2": "Above 60 V",
+    "block.usefulcomponents.uv_curing_machine.tooltip.behaviour2": "The lamp burns out and the machine _explodes_.",
+    "usefulcomponents.gui.goggles.uv_curing.header": "UV lamp heat level:",
+    "usefulcomponents.gui.goggles.uv_curing.level": "Level %1$s / %2$s",
+    "usefulcomponents.gui.goggles.uv_curing.off": "Off",
+    "usefulcomponents.gui.goggles.uv_curing.thresholds": "Needs %1$s W / %2$s W / %3$s W",
+    "usefulcomponents.gui.goggles.uv_curing.curing": "Curing..."
 }

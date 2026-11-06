@@ -1,76 +1,22 @@
 {
-  "textures": {
-    "0": "usefulcomponents:block/uv_curing_machine",
-    "particle": "usefulcomponents:block/uv_curing_machine"
-  },
-  "elements": [
-    {
-      "from": [
-        3,
-        0,
-        4
-      ],
-      "to": [
-        13,
-        3,
-        12
-      ],
-      "faces": {
-        "north": {
-          "uv": [
-            2,
-            0,
-            4,
-            2
-          ],
-          "texture": "#0"
-        },
-        "south": {
-          "uv": [
-            2,
-            0,
-            4,
-            2
-          ],
-          "texture": "#0"
-        },
-        "east": {
-          "uv": [
-            2,
-            0,
-            4,
-            2
-          ],
-          "texture": "#0"
-        },
-        "west": {
-          "uv": [
-            2,
-            0,
-            4,
-            2
-          ],
-          "texture": "#0"
-        },
-        "up": {
-          "uv": [
-            2,
-            0,
-            4,
-            2
-          ],
-          "texture": "#0"
-        },
-        "down": {
-          "uv": [
-            4,
-            0,
-            6,
-            2
-          ],
-          "texture": "#0"
-        }
-      }
-    }
-  ]
+	"format_version": "26.3",
+	"credit": "Made with Blockbench",
+	"textures": {
+		"0": "usefulcomponents:block/uv_curing_machine",
+		"particle": "usefulcomponents:block/uv_curing_machine"
+	},
+	"elements": [
+		{
+			"from": [3, 0, 4],
+			"to": [13, 3, 12],
+			"faces": {
+				"north": {"uv": [2, 0, 4, 2], "texture": "#0"},
+				"east": {"uv": [2, 0, 4, 2], "texture": "#0"},
+				"south": {"uv": [2, 0, 4, 2], "texture": "#0"},
+				"west": {"uv": [2, 0, 4, 2], "texture": "#0"},
+				"up": {"uv": [2, 0, 4, 2], "texture": "#0"},
+				"down": {"uv": [4, 0, 6, 2], "texture": "#0"}
+			}
+		}
+	]
 }

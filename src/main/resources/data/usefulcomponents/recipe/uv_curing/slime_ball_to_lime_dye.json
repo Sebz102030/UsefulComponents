@@ -1,0 +1,11 @@
+{
+  "type": "usefulcomponents:uv_curing",
+  "ingredients": [
+    { "item": "minecraft:slime_ball" }
+  ],
+  "results": [
+    { "id": "minecraft:lime_dye", "count": 1 }
+  ],
+  "curing_time": 100,
+  "heat_level": 1
+}

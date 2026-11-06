@@ -4,6 +4,7 @@ import com.power.usefulcomponents.config.UsefulComponentsConfig;
 import com.power.usefulcomponents.registry.ModBlockEntities;
 import com.simibubi.create.content.kinetics.base.IRotate;
 import com.simibubi.create.foundation.block.IBE;
+import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.network.chat.Component;
@@ -116,13 +117,17 @@ public class UvCuringBlock extends ElectricKineticBlock
 
     @Override
     public void appendProperties(ItemStack stack, Player player, List<Component> tooltip) {
-        int min = UsefulComponentsConfig.UV_MIN_SPEED.get();
-        int high = UsefulComponentsConfig.UV_HIGH_SPEED.get();
-        tooltip.add(Component.literal(min + " - " + (high - 1) + " RPM: needs "
-                + UsefulComponentsConfig.UV_POWER_LOW.get() + " W"));
-        tooltip.add(Component.literal(high + "+ RPM: needs "
-                + UsefulComponentsConfig.UV_POWER_HIGH.get() + " W"));
-        tooltip.add(Component.literal("Lamp resistance: "
-                + UsefulComponentsConfig.UV_COIL_RESISTANCE.get() + " ohm"));
+        tooltip.add(Component.literal("Heat level 1: " + UvCuringBlockEntity.heatPower(1) + " W")
+                .withStyle(ChatFormatting.YELLOW));
+        tooltip.add(Component.literal("Heat level 2: " + UvCuringBlockEntity.heatPower(2) + " W")
+                .withStyle(ChatFormatting.GOLD));
+        tooltip.add(Component.literal("Heat level 3: " + UvCuringBlockEntity.heatPower(3) + " W")
+                .withStyle(ChatFormatting.RED));
+        tooltip.add(Component.literal("Minimum speed: " + UsefulComponentsConfig.UV_MIN_SPEED.get() + " RPM")
+                .withStyle(ChatFormatting.GRAY));
+        tooltip.add(Component.literal("Lamp resistance: " + UsefulComponentsConfig.UV_COIL_RESISTANCE.get() + " ohm")
+                .withStyle(ChatFormatting.GRAY));
+        tooltip.add(Component.literal("Explodes at " + UsefulComponentsConfig.UV_BURNOUT_VOLTAGE.get() + " V")
+                .withStyle(ChatFormatting.DARK_RED));
     }
 }
