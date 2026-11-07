@@ -79,7 +79,8 @@ public class UvCuringRecipe extends StandardProcessingRecipe<RecipeInput> implem
 
     @Override
     public Component getDescriptionForAssembly() {
-        return Component.translatable("recipe.assembly." + UsefulComponents.MODID + ".uv_curing");
+        return Component.translatable("recipe.assembly." + UsefulComponents.MODID + ".uv_curing",
+                heatLevel, UvTimeFormat.readable(curingTime));
     }
 
     @Override
@@ -93,7 +94,7 @@ public class UvCuringRecipe extends StandardProcessingRecipe<RecipeInput> implem
 
     @Override
     public Supplier<Supplier<SequencedAssemblySubCategory>> getJEISubCategory() {
-        return null;
+        return () -> com.power.usefulcomponents.compat.jei.UvCuringAssemblySubCategory::new;
     }
 
     @Override

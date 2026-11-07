@@ -3,9 +3,12 @@
 ## UV curing machine (`usefulcomponents:uv_curing_machine`)
 Press-style machine. Needs shaft rotation AND electrical power (power cord or device
 connector on top / the two non-shaft sides, like the basin heater).
-- < 32 RPM: does nothing
-- Heat level from the power the lamp draws: level 1 = 10 W, level 2 = 30 W, level 3 = 50 W
+- Heat level = the LOWER of what the lamp power and the shaft speed allow:
+  level 1 = 10 W + 16 RPM, level 2 = 30 W + 64 RPM, level 3 = 50 W + 128 RPM
   (a higher level also satisfies a recipe that needs a lower one).
+- Goggles warn "Rotation too slow for level N" when the power would allow a higher level than the speed does.
+- Burnout awards the Power Grid "blow up" advancement, like other electric blocks.
+- JEI: a "UV Curing" tab lists every recipe with its heat level stage (power + RPM) and the curing time.
 - At 60 V across the lamp the machine burns out and explodes.
 - Goggles show the heat level as a bar (like Create's stress display); the item tooltip shows
   Create's stress impact (4 SU per RPM by default) and the electrical properties (hold shift).
@@ -44,3 +47,21 @@ Settings: range (blocks), duration (s). Burns out via ThermalBuilder at
 ## 10-pin ribbon connectors
 `ribbon_connector_10_side` / `_front`. Use the normal Ribbon Cable item; a cable only
 joins connectors with the same pin count.
+
+
+## Replacing the UV curing machine's models and textures
+The machine is drawn from three model files, in the world AND in the JEI tab / sequenced-assembly JEI page
+(both are animated automatically, like Create's press - nothing else to change):
+
+| Part | File (assets/usefulcomponents/) | Built | Animated by |
+|---|---|---|---|
+| Body (everything static) | models/block/uv_curing_machine.json (+ blockstates/uv_curing_machine.json) | facing NORTH | - |
+| Head (lamp) | models/block/uv_curing_head.json | facing NORTH, at its resting position | moves down / parks 4 px above the item / retracts |
+| Shaft input | models/block/uv_curing_shaft.json | along the Z axis, centered | spins around Z |
+
+Textures go in textures/block/. A resource pack can override the same paths. The default shaft uses
+Create's `create:block/axis` and `create:block/axis_top` textures.
+
+## Recipe time
+`curing_time` in the recipe json is in TICKS (20 per second). JEI shows it in the most readable unit
+(ticks, seconds, minutes, hours) with the exact ticks in brackets, e.g. "1 min 30 s (1800 ticks)".

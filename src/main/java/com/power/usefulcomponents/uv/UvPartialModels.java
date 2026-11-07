@@ -11,7 +11,10 @@ import net.minecraft.resources.ResourceLocation;
  */
 public final class UvPartialModels {
 
+    /** The lamp head that moves up and down. models/block/uv_curing_head.json */
     public static final PartialModel HEAD = block("uv_curing_head");
+    /** The spinning shaft input (built along the Z axis). models/block/uv_curing_shaft.json */
+    public static final PartialModel SHAFT = block("uv_curing_shaft");
 
     private static PartialModel block(String name) {
         return PartialModel.of(ResourceLocation.fromNamespaceAndPath(UsefulComponents.MODID, "block/" + name));

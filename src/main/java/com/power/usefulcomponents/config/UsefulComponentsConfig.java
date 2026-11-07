@@ -34,7 +34,9 @@ public final class UsefulComponentsConfig {
     public static final ModConfigSpec.BooleanValue SENSOR_DETECT_ITEMS;
 
     // --- UV Curing Machine ---
-    public static final ModConfigSpec.IntValue UV_MIN_SPEED;
+    public static final ModConfigSpec.IntValue UV_HEAT1_SPEED;
+    public static final ModConfigSpec.IntValue UV_HEAT2_SPEED;
+    public static final ModConfigSpec.IntValue UV_HEAT3_SPEED;
     public static final ModConfigSpec.DoubleValue UV_HEAT1_POWER;
     public static final ModConfigSpec.DoubleValue UV_HEAT2_POWER;
     public static final ModConfigSpec.DoubleValue UV_HEAT3_POWER;
@@ -123,11 +125,23 @@ public final class UsefulComponentsConfig {
         builder.comment("UV Curing Machine settings")
                 .push("uvCuring");
 
-        UV_MIN_SPEED = builder
-                .comment("Minimum rotation speed (RPM, either direction) the machine needs to operate at all.")
+        UV_HEAT1_SPEED = builder
+                .comment("Minimum rotation speed (RPM, either direction) for heat level 1.")
                 .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
-                        + ".uvMinSpeed")
-                .defineInRange("uvMinSpeed", 32, 1, 256);
+                        + ".uvHeat1Speed")
+                .defineInRange("uvHeat1Speed", 16, 1, 256);
+
+        UV_HEAT2_SPEED = builder
+                .comment("Minimum rotation speed (RPM, either direction) for heat level 2.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvHeat2Speed")
+                .defineInRange("uvHeat2Speed", 64, 1, 256);
+
+        UV_HEAT3_SPEED = builder
+                .comment("Minimum rotation speed (RPM, either direction) for heat level 3.")
+                .translation("config." + com.power.usefulcomponents.UsefulComponents.MODID
+                        + ".uvHeat3Speed")
+                .defineInRange("uvHeat3Speed", 128, 1, 256);
 
         UV_HEAT1_POWER = builder
                 .comment("Electrical power (Watts) the lamp must draw for heat level 1.")

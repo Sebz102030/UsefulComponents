@@ -26,6 +26,7 @@ import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import org.jetbrains.annotations.Nullable;
+import org.patryk3211.powergrid.collections.ModdedAdvancements;
 import org.patryk3211.powergrid.electricity.base.ThermalBehaviour;
 import org.patryk3211.powergrid.electricity.sim.ElectricWire;
 import org.patryk3211.powergrid.kinetics.base.ElectricKineticBlockEntity;
@@ -37,10 +38,10 @@ import java.util.Optional;
  * Works like Create's mechanical press (items on a belt / depot two blocks
  * below, or on the ground one block below), but applies
  * {@link UvCuringRecipe}s, and only while:
- *  - the shaft turns at least {@code uvMinSpeed} RPM (default 32), and
- *  - the lamp draws enough power for the recipe's {@code heat_level}:
- *    level 1 = {@code uvHeat1Power} (10 W), level 2 = {@code uvHeat2Power} (30 W),
- *    level 3 = {@code uvHeat3Power} (50 W). A higher level also satisfies a lower recipe.
+ *  - the lamp draws enough power AND the shaft turns fast enough for the recipe's {@code heat_level}:
+ *    level 1 = 10 W + 16 RPM, level 2 = 30 W + 64 RPM, level 3 = 50 W + 128 RPM (all configurable).
+ *    The machine's heat level is the lower of what power and speed allow; a higher level also
+ *    satisfies a recipe that needs a lower one.
  *
  * Each recipe has a {@code curing_time}: the head comes down, then stays parked just above the
  * item for that many ticks (only counting while the heat level is high enough) before the press
@@ -60,18 +61,23 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
     private static final float POWER_TOLERANCE = 0.95f;
     /** Consecutive electrical ticks at/above the burnout voltage before the machine explodes. */
     private static final int OVERVOLTAGE_TICKS = 3;
-    /** The head parks this many press-cycle ticks before the pressing point. */
-    private static final int HOLD_MARGIN = 16;
-    /**
-     * Press speed fed to Create's PressingBehaviour is capped, so that one tick can never move the
-     * head more than HOLD_MARGIN cycle ticks (it must not skip over the parking window).
-     */
+    /** While curing the head parks this many pixels above the item (it never goes lower than that). */
+    private static final float PARK_GAP_PIXELS = 4f;
+    /** Press speed (RPM) is capped, so a tick never moves the head far. */
     private static final float MAX_PRESS_SPEED = 128f;
+    /** Slow speed used for the last part of the descent, so the head can stop exactly at the parking height. */
+    private static final float APPROACH_SPEED = 24f;
+    /** Head offset (0 = up, 1 = fully down) from which the slow approach starts. */
+    private static final float APPROACH_FROM = 0.45f;
+    /** Speed used to run through the rest of the stroke once curing is done (the head stays parked meanwhile). */
+    private static final float FINISH_SPEED = 256f;
 
     public PressingBehaviour pressingBehaviour;
     private ElectricWire coil;
-    /** Heat level 0-3 reached by the lamp. Server decides, client mirrors (synced). */
+    /** Heat level 0-3 reached by the lamp (limited by BOTH power and speed). Server decides, client mirrors (synced). */
     private int heatLevel;
+    /** Heat level the electrical power alone would allow (synced; used for the "too slow" warning). */
+    private int powerLevel;
     /** Head is parked above the item, curing. Server decides, client mirrors (synced). */
     private boolean holding;
     private int holdTicksLeft;
@@ -96,6 +102,8 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
         super.addBehaviours(behaviours);
         pressingBehaviour = new PressingBehaviour(this);
         behaviours.add(pressingBehaviour);
+        // Needed so the "blow up" advancement can be awarded when the lamp burns out.
+        registerAwardables(behaviours, ModdedAdvancements.BLOW_UP);
     }
 
     @Override
@@ -116,12 +124,31 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
         };
     }
 
-    private int measureHeatLevel() {
-        if (Math.abs(getSpeed()) < UsefulComponentsConfig.UV_MIN_SPEED.get())
-            return 0;
+    /** Rotation speed (RPM) needed for the given heat level (1-3). */
+    public static int heatSpeed(int level) {
+        return switch (level) {
+            case 1 -> UsefulComponentsConfig.UV_HEAT1_SPEED.get();
+            case 2 -> UsefulComponentsConfig.UV_HEAT2_SPEED.get();
+            case 3 -> UsefulComponentsConfig.UV_HEAT3_SPEED.get();
+            default -> 0;
+        };
+    }
+
+    /** Highest heat level the electrical power alone allows. */
+    private int measurePowerLevel() {
         float power = (float) Math.abs(coil.power());
         for (int lvl = UvCuringRecipe.MAX_HEAT_LEVEL; lvl >= UvCuringRecipe.MIN_HEAT_LEVEL; lvl--) {
             if (power >= heatPower(lvl) * POWER_TOLERANCE)
+                return lvl;
+        }
+        return 0;
+    }
+
+    /** Highest heat level the shaft speed alone allows. */
+    private int measureSpeedLevel() {
+        float speed = Math.abs(getSpeed());
+        for (int lvl = UvCuringRecipe.MAX_HEAT_LEVEL; lvl >= UvCuringRecipe.MIN_HEAT_LEVEL; lvl--) {
+            if (speed >= heatSpeed(lvl))
                 return lvl;
         }
         return 0;
@@ -138,6 +165,7 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
             double volts = Math.abs(coil.potentialDifference());
             if (volts >= UsefulComponentsConfig.UV_BURNOUT_VOLTAGE.get()) {
                 if (++overVoltageTicks >= OVERVOLTAGE_TICKS) {
+                    award(ModdedAdvancements.BLOW_UP);
                     ThermalBehaviour.explode(level, worldPosition, getBlockState(), 1.0f);
                     return;
                 }
@@ -146,9 +174,11 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
             }
         }
 
-        int measured = measureHeatLevel();
-        if (measured != heatLevel) {
+        int power = measurePowerLevel();
+        int measured = Math.min(power, measureSpeedLevel());
+        if (measured != heatLevel || power != powerLevel) {
             heatLevel = measured;
+            powerLevel = power;
             if (level != null && !level.isClientSide)
                 sendData();
         }
@@ -167,13 +197,45 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
         return holding;
     }
 
-    /** The speed Create's PressingBehaviour sees: 0 stops the stroke (no power, too slow, or curing). */
+    /**
+     * Head offset (0 = up, 1 = fully down, as Create's PressingBehaviour measures it) at which the
+     * head is parked while curing: {@value #PARK_GAP_PIXELS} px above the item. Also used by the renderer
+     * so the head never goes lower than this.
+     */
+    public float getParkFraction() {
+        float travel = pressingBehaviour != null && pressingBehaviour.mode != null
+                ? pressingBehaviour.mode.headOffset : 1f;
+        return Math.max(0.3f, Math.min(0.99f, 1f - (PARK_GAP_PIXELS / 16f) / travel));
+    }
+
+    /**
+     * The speed Create's PressingBehaviour sees: 0 stops the stroke (no power, too slow, or parked while
+     * curing). Fast descent, a slow last bit so the head stops exactly at the parking height, and a fast
+     * run-through after curing (the head is held at the parking height visually until it retracts).
+     */
     @Override
     public float getKineticSpeed() {
         float speed = getSpeed();
-        if (heatLevel == 0 || holding || Math.abs(speed) < UsefulComponentsConfig.UV_MIN_SPEED.get())
+        if (heatLevel == 0)
             return 0f;
-        return Math.copySign(Math.min(Math.abs(speed), MAX_PRESS_SPEED), speed);
+        float mag = Math.min(Math.abs(speed), MAX_PRESS_SPEED);
+
+        PressingBehaviour press = pressingBehaviour;
+        if (press != null && press.running) {
+            float park = getParkFraction();
+            float offset = press.getRenderedHeadOffset(1f);
+            if (press.runningTicks < PressingBehaviour.CYCLE / 2) {
+                if (offset >= park) {
+                    if (holding)
+                        return 0f;                      // parked, curing
+                } else if (offset >= APPROACH_FROM) {
+                    mag = Math.min(mag, APPROACH_SPEED); // creeping to the parking height
+                }
+            } else if (offset >= park) {
+                mag = FINISH_SPEED;                      // curing done, get past the pressing point quickly
+            }
+        }
+        return Math.copySign(mag, speed);
     }
 
     @Override
@@ -183,7 +245,7 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
             curingTick();
     }
 
-    /** Parks the head above the item for the recipe's curing time, then lets the stroke finish. */
+    /** Parks the head 4 px above the item for the recipe's curing time, then lets the stroke finish (head retracts). */
     private void curingTick() {
         PressingBehaviour press = pressingBehaviour;
         if (!press.running) {
@@ -208,7 +270,7 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
 
         int pressPoint = PressingBehaviour.CYCLE / 2;
         if (!holdDone && pendingCuringTime > 0 && heatLevel >= pendingHeatLevel
-                && press.runningTicks >= pressPoint - HOLD_MARGIN && press.runningTicks < pressPoint) {
+                && press.runningTicks < pressPoint && press.getRenderedHeadOffset(1f) >= getParkFraction()) {
             holding = true;
             holdTicksLeft = pendingCuringTime;
             sendData();
@@ -219,6 +281,7 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
     protected void write(CompoundTag compound, HolderLookup.Provider registries, boolean clientPacket) {
         super.write(compound, registries, clientPacket);
         compound.putInt("UvHeatLevel", heatLevel);
+        compound.putInt("UvPowerLevel", powerLevel);
         compound.putBoolean("UvHolding", holding);
         compound.putInt("UvHoldLeft", holdTicksLeft);
     }
@@ -227,6 +290,7 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
     protected void read(CompoundTag compound, HolderLookup.Provider registries, boolean clientPacket) {
         super.read(compound, registries, clientPacket);
         heatLevel = compound.getInt("UvHeatLevel");
+        powerLevel = compound.getInt("UvPowerLevel");
         holding = compound.getBoolean("UvHolding");
         holdTicksLeft = compound.getInt("UvHoldLeft");
     }
@@ -264,6 +328,19 @@ public class UvCuringBlockEntity extends ElectricKineticBlockEntity implements P
                         fmt(heatPower(1)), fmt(heatPower(2)), fmt(heatPower(3)))
                 .style(ChatFormatting.DARK_GRAY)
                 .forGoggles(tooltip, 1);
+        Lang.builder(UsefulComponents.MODID).translate("gui.goggles.uv_curing.thresholds_speed",
+                        heatSpeed(1), heatSpeed(2), heatSpeed(3))
+                .style(ChatFormatting.DARK_GRAY)
+                .forGoggles(tooltip, 1);
+
+        // Power is good enough for a higher stage, but the shaft is too slow for it.
+        if (powerLevel > heatLevel) {
+            int blocked = heatLevel + 1;
+            Lang.builder(UsefulComponents.MODID).translate("gui.goggles.uv_curing.too_slow",
+                            blocked, heatSpeed(blocked))
+                    .style(ChatFormatting.RED)
+                    .forGoggles(tooltip, 1);
+        }
 
         if (holding) {
             Lang.builder(UsefulComponents.MODID).translate("gui.goggles.uv_curing.curing")
